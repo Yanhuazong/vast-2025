@@ -154,9 +154,9 @@ function debounce(fn, delay) {
 function Overview({ data }) {
 
     // Collapsible filter state
-    const [showGenreFilter, setShowGenreFilter] = useState(true);
-    const [showInfluenceFilter, setShowInfluenceFilter] = useState(true);
-    const [showArtistFilter, setShowArtistFilter] = useState(true);
+    const [showGenreFilter, setShowGenreFilter] = useState(false);
+    const [showInfluenceFilter, setShowInfluenceFilter] = useState(false);
+    const [showArtistFilter, setShowArtistFilter] = useState(false);
     // --- Artist role filter state ---
     const [selectedRoles, setSelectedRoles] = useState(() => new Set(ARTIST_ROLES.map(r => r.label)));
     const allRolesSelected = selectedRoles.size === ARTIST_ROLES.length;
@@ -213,6 +213,22 @@ function Overview({ data }) {
         return map;
     }, [data.nodes]);
     const ref = useRef();
+    const [svgHeight, setSvgHeight] = useState(1000); // Default height
+
+    // Dynamically update height based on width
+    useEffect(() => {
+        function updateHeight() {
+            if (ref.current) {
+                const width = ref.current.clientWidth || ref.current.parentElement?.clientWidth || window.innerWidth;
+                // Use a ratio or a function of width for height
+                const height = Math.max(600, Math.round(width * 1.33));
+                setSvgHeight(height);
+            }
+        }
+        updateHeight();
+        window.addEventListener('resize', updateHeight);
+        return () => window.removeEventListener('resize', updateHeight);
+    }, []);
 
     // --- Main genre filter ---
     const [selectedGenres, setSelectedGenres] = useState(() => new Set(genres));
@@ -381,12 +397,13 @@ function Overview({ data }) {
         d3.select(ref.current).selectAll('*').remove();
         const width = ref.current.clientWidth;
         if (!width || width < 100) return;
-
-        const height = 2000;
-        const radius = 1500;
+        const height = svgHeight;
+        // Make radius dynamic and proportional to the SVG size
+        const radius = Math.min(width, height) * 0.5; // 45% of the smaller dimension
         const arcAngle = Math.abs(arcEnd - arcStart);
         const centerX = width / 2;
-        const arcMidY = height * 1.5;
+        // Adjust arcMidY and centerY to keep arc visible and centered
+        const arcMidY = height * 0.8; // Lowered to fit arc in view
         const centerY = arcMidY - radius * Math.cos(arcAngle / 2);
         const zoomArcMidY = height * 0.2;
         const svg = d3.select(ref.current);
@@ -401,39 +418,7 @@ function Overview({ data }) {
             .range([arcStart, arcEnd]);
 
         let zoomTransform = d3.zoomIdentity;
-        if (filterActive && filteredYears.length > 1 && filteredYears.length < arcYears.length - 5) {
-            // Set minimum year range to prevent excessive zooming
-            const yearRange = filteredYears[filteredYears.length - 1] - filteredYears[0];
-            const minYearRange = 40; // Minimum 35 years to show
-            
-            let effectiveFirstYear = filteredYears[0];
-            let effectiveLastYear = filteredYears[filteredYears.length - 1];
-            if (yearRange < minYearRange) {
-                // Expand to 35 years centered on the filtered range
-                const midYear = Math.round((Number(filteredYears[0]) + Number(filteredYears[filteredYears.length - 1])) / 2);
-                const halfRange = Math.floor(minYearRange / 2);
-                effectiveFirstYear = Math.min(Number(filteredYears[0]), midYear - halfRange);
-                effectiveLastYear = Math.max(Number(filteredYears[filteredYears.length - 1]), midYear + halfRange);
-            }
-            
-            const firstAngle = arcYears.includes(String(effectiveFirstYear)) ? angleScale(String(effectiveFirstYear)) - Math.PI / 2 : angleScale(arcYears[0]) - Math.PI / 2;
-            const lastAngle = arcYears.includes(String(effectiveLastYear)) ? angleScale(String(effectiveLastYear)) - Math.PI / 2 : angleScale(arcYears[arcYears.length - 1]) - Math.PI / 2;
-            const midAngle = (firstAngle + lastAngle) / 2;
-            const midX = centerX + Math.cos(midAngle) * radius;
-            const midY = centerY + Math.sin(midAngle) * radius;
-            const x1 = centerX + Math.cos(firstAngle) * radius;
-            const y1 = centerY + Math.sin(firstAngle) * radius;
-            const x2 = centerX + Math.cos(lastAngle) * radius;
-            const y2 = centerY + Math.sin(lastAngle) * radius;
-            const dist = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
-            const desiredSpan = width * 0.8;
-            const maxScale = 1.1;
-            const scale = Math.min(desiredSpan / dist, maxScale);
-            zoomTransform = d3.zoomIdentity
-                .translate(centerX, zoomArcMidY)
-                .scale(scale)
-                .translate(-midX, -midY);
-        }
+        // Removed automatic zoom logic - always use identity transform
 
         const g = svg.append('g')
             .attr('class', 'zoom-group')
@@ -461,7 +446,7 @@ function Overview({ data }) {
 
         const tooltip = createTooltip();
 
-        // Draw arc and ticks/labels (always)
+        // --- Draw arc and ticks/labels (always)
         const arc = d3.arc()
             .innerRadius(radius - 20)
             .outerRadius(radius)
@@ -473,9 +458,20 @@ function Overview({ data }) {
             .attr('fill', '#222')
             .attr('transform', `translate(${centerX},${centerY})`);
 
+        // Responsive tick/label sizing
+        const minFontSize = 4;
+        const minTickLength = 3;
+        let maxFontSize = 8;
+        let maxTickLength = 10;
+        if (width > 2000) {
+            maxFontSize = 14;
+            maxTickLength = 18;
+        }
+        const fontSize = Math.max(minFontSize, Math.min(maxFontSize, width / 80));
+        const tickLength = Math.max(minTickLength, Math.min(maxTickLength, width / 50));
+
         arcYears.forEach(year => {
             const angle = angleScale(year) - Math.PI / 2;
-            const tickLength = 20;
             g.append('line')
                 .attr('x1', centerX + Math.cos(angle) * (radius + tickLength + 20))
                 .attr('y1', centerY + Math.sin(angle) * (radius + tickLength + 20))
@@ -487,7 +483,7 @@ function Overview({ data }) {
                 .attr('x', centerX + Math.cos(angle) * (radius - tickLength - 14))
                 .attr('y', centerY + Math.sin(angle) * (radius - tickLength - 14))
                 .attr('text-anchor', 'middle')
-                .attr('font-size', 14)
+                .attr('font-size', fontSize)
                 .attr('alignment-baseline', 'middle')
                 .attr('fill', '#fff')
                 .text(year);
@@ -599,7 +595,7 @@ function Overview({ data }) {
             const yearStr = String(medianYear);
             // Add jitter to angle to reduce overlap
             const baseAngle = arcYears.includes(yearStr) ? angleScale(yearStr) - Math.PI / 2 : angleScale(arcYears[0]) - Math.PI / 2;
-            const angleJitter = (Math.random() - 0.5) * 0.05; // ~5 degrees jitter
+            const angleJitter = (Math.random() - 0.5) * 0.05; // ~1 degrees jitter
             const angle = baseAngle + angleJitter;
             let bandHeight = labelBandHeightByYear[0].height;
             for (let i = 1; i < labelBandHeightByYear.length; i++) {
@@ -874,14 +870,14 @@ function Overview({ data }) {
                     a = ((a << 5) - a) + b.charCodeAt(0);
                     return a & a;
                 }, 0);
-                const jitterRadius =60; // Increased from 40 to 60
+                const jitterRadius = 60; // Use your preferred jitter radius
                 const jitterAngle = (hash % 360) * (Math.PI / 180);
-                const jitterDistance = (hash % 100) / 100 * jitterRadius;
+                const jitterDistance = Math.sqrt((hash % 1000) / 1000) * jitterRadius; // Uniform ring distribution
                 const jitterX = Math.cos(jitterAngle) * jitterDistance;
                 const jitterY = Math.sin(jitterAngle) * jitterDistance;
 
                 // Add a small random jitter to avoid overlap
-                const angle = artistAngle + (Math.random() - 0.5) * 0.15; // Increased from 0.1 to 0.15
+                const angle = artistAngle + (Math.random() - 0.5) * 0.03; // Increased from 0.1 to 0.15
                 const x = centerX + Math.cos(angle) * r + jitterX;
                 const y = centerY + Math.sin(angle) * r + jitterY;
                 artistPositions[node.id] = { x, y };
@@ -1540,14 +1536,14 @@ function Overview({ data }) {
                             });
                             
                             // Highlight influenced artworks 
-                            if (Array.isArray(artworkNode.influenced)) {
-                                artworkNode.influenced.forEach(influencedId => {
-                                    if (artworkPositions[influencedId]) {
-                                        // The influenced artwork will be highlighted by the existing artwork drawing logic
-                                        // when it's in the filtered nodes
-                                    }
-                                });
-                            }
+                            // if (Array.isArray(artworkNode.influenced)) {
+                            //     artworkNode.influenced.forEach(influencedId => {
+                            //         if (artworkPositions[influencedId]) {
+                            //             // The influenced artwork will be highlighted by the existing artwork drawing logic
+                            //             // when it's in the filtered nodes
+                            //         }
+                            //     });
+                            // }
                             
                             ['recordedBy', 'distributedBy'].forEach(labelKey => {
                                 if (Array.isArray(artworkNode[labelKey])) {
@@ -1675,6 +1671,12 @@ function Overview({ data }) {
                         arcYears.forEach(year => {
                             const yearInfluencedArtworks = filteredInfluencedArtworks.filter(d => String(d.release_date) === String(year));
                             if (yearInfluencedArtworks.length > 0) {
+                                // Debug: Log the influenced artworks for this year
+                                console.log(`Year ${year}: ${yearInfluencedArtworks.length} influenced artworks`);
+                                yearInfluencedArtworks.forEach((artwork, idx) => {
+                                    console.log(`  ${idx}: ${artwork.name} (${artwork.genre}) - ${artwork["Node Type"]}`);
+                                });
+                                
                                 const angle = angleScale(year) - Math.PI / 2;
                                 const arcBaseX = Math.cos(angle) * radius;
                                 const arcBaseY = Math.sin(angle) * radius;
@@ -1687,77 +1689,92 @@ function Overview({ data }) {
                                 const barWidthPx = barWidth + barGap;
                                 const barSpan = (totalBarCount - 1) * barWidthPx;
 
-                                // Draw influenced artworks at the bottom of the timeline
-                                yearInfluencedArtworks.forEach((artwork, artworkIdx) => {
-                                    const genre = artwork.genre;
-                                    const genreIdx = genres.indexOf(genre);
-                                    if (genreIdx === -1) return; // Skip if genre not found
+                                // Use the same nested loop structure as contributed artworks
+                                let barIdx = 0;
+                                GENRE_GROUPS.forEach((group, groupIdx) => {
+                                    group.genres.forEach((genre, genreIdx) => {
+                                        const offset = (barIdx - (genres.length - 1) / 2) * (barWidth + barGap);
+                                        const x = groupBaseX + tanX * offset;
+                                        const y = groupBaseY + tanY * offset;
+                                        
+                                        // Get influenced artworks for this genre and year
+                                        const genreInfluencedArtworks = yearInfluencedArtworks.filter(d => d.genre === genre);
+                                        
+                                        if (genreInfluencedArtworks.length > 0) {
+                                            // Sort songs first, then albums
+                                            const sortedGenreArtworks = genreInfluencedArtworks.sort((a, b) => {
+                                                const aIsAlbum = a["Node Type"].toLowerCase() === 'album';
+                                                const bIsAlbum = b["Node Type"].toLowerCase() === 'album';
+                                                return aIsAlbum - bIsAlbum;
+                                            });
+                                            
+                                            sortedGenreArtworks.forEach((artwork, artworkIdx) => {
+                                                const isNotable = artwork.notable;
+                                                const isAlbum = artwork["Node Type"].toLowerCase() === 'album';
+                                                
+                                                // Use same base sizes as contributed artworks
+                                                const baseRadius = isAlbum ? 1.5 : 1;
+                                                
+                                                // Apply same scaling factors as contributed artworks
+                                                const filterActivePart =
+                                                    (selectedGenres.size < 10 && selectedGenres.size > 0) ||
+                                                    (influenceGenres.size > 0 && selectedGenres.size < 10) ||
+                                                    (influenceGenres.size < 3 && influenceGenres.size > 0) ||
+                                                    selectedLabelId !== null;
+                                                const personFilterActive = selectedArtistId !== null;
+                                                const dotRadius = personFilterActive ? baseRadius * 5 : filterActivePart ? baseRadius * 3 : baseRadius;
+                                                
+                                                const fillColor = genreLookup[genre]?.color || "#fff";
+                                                const strokeColor = genreLookup[genre]?.color || "#fff";
+                                                
+                                                // Position at the bottom of the timeline (first at top, then stack inward)
+                                                const barAngle = Math.atan2(y - centerY, x - centerX);
+                                                const r = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2) - 10 - (artworkIdx * 8); // Stack inward toward center
+                                                const dotX = centerX + Math.cos(barAngle) * r;
+                                                const dotY = centerY + Math.sin(barAngle) * r;
 
-                                    const offset = (genreIdx - (genres.length - 1) / 2) * (barWidth + barGap);
-                                    const x = groupBaseX + tanX * offset;
-                                    const y = groupBaseY + tanY * offset;
+                                                // Store position for potential links
+                                                artworkPositions[artwork.id] = { x: dotX, y: dotY };
 
-                                    const isNotable = artwork.notable;
-                                    const isAlbum = artwork["Node Type"].toLowerCase() === 'album';
-                                    
-                                    // Use same base sizes as contributed artworks
-                                    const baseRadius = isAlbum ? 1.5 : 1;
-                                    
-                                    // Apply same scaling factors as contributed artworks
-                                    const filterActivePart =
-                                        (selectedGenres.size < 10 && selectedGenres.size > 0) ||
-                                        (influenceGenres.size > 0 && selectedGenres.size < 10) ||
-                                        (influenceGenres.size < 3 && influenceGenres.size > 0) ||
-                                        selectedLabelId !== null;
-                                    const personFilterActive = selectedArtistId !== null;
-                                    const dotRadius = personFilterActive ? baseRadius * 6 : filterActivePart ? baseRadius * 3 : baseRadius;
-                                    
-                                    const fillColor = '#ff6b6b'; // Red fill for all influenced artworks
-                                    const strokeColor = '#ff6b6b'; // Red border for all influenced artworks
-                                    
-                                    // Position at the bottom of the timeline (negative stackOffset)
-                                    const barAngle = Math.atan2(y - centerY, x - centerX);
-                                    const r = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2) - 20 - (artworkIdx * 8); // Bottom stacking
-                                    const dotX = centerX + Math.cos(barAngle) * r;
-                                    const dotY = centerY + Math.sin(barAngle) * r;
+                                                // Influenced artwork dot
+                                                g.append('circle')
+                                                    .attr('cx', dotX)
+                                                    .attr('cy', dotY)
+                                                    .attr('r', dotRadius)
+                                                    .attr('fill', fillColor)
+                                                    .attr('stroke', strokeColor)
+                                                    .attr('stroke-width', 1.5)
+                                                    .style('cursor', 'pointer')
+                                                    .on('mousemove', (event) => {
+                                                        tooltip
+                                                            .style('display', 'block')
+                                                            .html(
+                                                                `<b style="color:${strokeColor}">Influenced by ${selectedArtist.name || selectedArtist.id}</b><br/>
+                                                                ${genre}<br/>
+                                                                ${artwork["Node Type"]}: ${artwork.name || ""}`
+                                                            )
+                                                            .style('left', (event.pageX + 12) + 'px')
+                                                            .style('top', (event.pageY - 24) + 'px');
+                                                    })
+                                                    .on('mouseleave', () => tooltip.style('display', 'none'))
+                                                    .on('click', (event) => {
+                                                        event.stopPropagation();
+                                                        setSelectedArtworkId(artwork.id === selectedArtworkId ? null : artwork.id);
+                                                    });
 
-                                    // Store position for potential links
-                                    artworkPositions[artwork.id] = { x: dotX, y: dotY };
-
-                                    // Influenced artwork dot (red color scheme)
-                                    g.append('circle')
-                                        .attr('cx', dotX)
-                                        .attr('cy', dotY)
-                                        .attr('r', dotRadius)
-                                        .attr('fill', fillColor)
-                                        .attr('stroke', strokeColor)
-                                        .attr('stroke-width', 1.5)
-                                        .style('cursor', 'pointer')
-                                        .on('mousemove', (event) => {
-                                            tooltip
-                                                .style('display', 'block')
-                                                .html(
-                                                    `<b style="color:${strokeColor}">Influenced by ${selectedArtist.name || selectedArtist.id}</b><br/>
-                                                    ${genre}<br/>
-                                                    ${artwork["Node Type"]}: ${artwork.name || ""}`
-                                                )
-                                                .style('left', (event.pageX + 12) + 'px')
-                                                .style('top', (event.pageY - 24) + 'px');
-                                        })
-                                        .on('mouseleave', () => tooltip.style('display', 'none'))
-                                        .on('click', (event) => {
-                                            event.stopPropagation();
-                                            setSelectedArtworkId(artwork.id === selectedArtworkId ? null : artwork.id);
-                                        });
-
-                                    // Center circle for all influenced artworks
-                                    const centerColor = isNotable ? '#fff' : '#000';
-                                    g.append('circle')
-                                        .attr('cx', dotX)
-                                        .attr('cy', dotY)
-                                        .attr('r', dotRadius * 0.45)
-                                        .attr('fill', centerColor)
-                                        .style('pointer-events', 'none');
+                                                // Center circle for all influenced artworks
+                                                const centerColor = isNotable ? '#fff' : '#000';
+                                                g.append('circle')
+                                                    .attr('cx', dotX)
+                                                    .attr('cy', dotY)
+                                                    .attr('r', dotRadius * 0.45)
+                                                    .attr('fill', centerColor)
+                                                    .style('pointer-events', 'none');
+                                            });
+                                        }
+                                        
+                                        barIdx++;
+                                    });
                                 });
                             }
                         });
@@ -1765,7 +1782,7 @@ function Overview({ data }) {
                 }
             }
         }
-    }, [filteredNodes, years, genres, artistNodes, visibleLabels, selectedGenres, visibleSongAlbumIds, nodeById, selectedArtistId, selectedLabelId, selectedArtworkId, influenceGenres, arcYears, angleScale, artistTailData]);
+    }, [filteredNodes, years, genres, artistNodes, visibleLabels, selectedGenres, visibleSongAlbumIds, nodeById, selectedArtistId, selectedLabelId, selectedArtworkId, influenceGenres, arcYears, angleScale, artistTailData, svgHeight]);
 
     // Debounced draw
     const debouncedDraw = useMemo(() => debounce(draw, 50), [draw]);
@@ -1790,14 +1807,14 @@ function Overview({ data }) {
             debouncedDraw.cancel && debouncedDraw.cancel();
             resizeObserver.disconnect();
         };
-    }, [debouncedDraw, ref]);
+    }, [debouncedDraw, ref, svgHeight]);
 
     // --- UI ---
 
     return (
         <div>
             <div className="overview" style={{ width: '100%' }}>
-                <svg ref={ref} width="100%" height="1000"></svg>
+                <svg ref={ref} width="100%" height={svgHeight}></svg>
             </div>
             <div
                 style={{
@@ -1810,7 +1827,7 @@ function Overview({ data }) {
                     margin: '1em 0 2em 0',
                     fontSize: '0.85em',
                     position: 'absolute',
-                    bottom: 0,
+                    top: "1em",
                     left: 0
                 }}
             >
