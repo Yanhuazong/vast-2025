@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Overview from "./Overview.jsx";
+import Chatbot from "./Chatbot.jsx";
 
 const App = () => {
     const [data, setData] = useState(null);
@@ -16,6 +17,7 @@ const App = () => {
         <div className="vis-container">
             {data ? <Overview data={data}/> : <div>Loading...</div>}
         </div>
+        <Chatbot />
     </div>
   );
 }

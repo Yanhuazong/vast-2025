@@ -6,6 +6,7 @@ const GENRE_GROUPS = [
     {
         name: "Folk",
         hue: 40,
+        baseColor: "#FFE35E", // darkest Folk
         genres: [
             "Acoustic Folk",
             "Avant-Garde Folk",
@@ -18,6 +19,7 @@ const GENRE_GROUPS = [
     {
         name: "Rock",
         hue: 0,
+        baseColor: "#F13D81", // darkest Rock
         genres: [
             "Alternative Rock",
             "Blues Rock",
@@ -32,6 +34,7 @@ const GENRE_GROUPS = [
     {
         name: "Pop",
         hue: 210,
+        baseColor: "#37B6FF", // darkest Pop
         genres: [
             "Indie Pop",
             "Dream Pop",
@@ -41,6 +44,7 @@ const GENRE_GROUPS = [
     {
         name: "Metal",
         hue: 280,
+        baseColor: "#9445EC", // darkest Metal
         genres: [
             "Doom Metal",
             "Speed Metal",
@@ -50,6 +54,7 @@ const GENRE_GROUPS = [
     {
         name: "Other",
         hue: 120,
+        baseColor: "#55FFB5", // darkest Other
         genres: [
             "Americana",
             "Darkwave",
@@ -65,13 +70,27 @@ const GENRE_GROUPS = [
 const genreLookup = (() => {
     const lookup = {};
     GENRE_GROUPS.forEach((group, groupIdx) => {
-        group.genres.forEach((genre, genreIdx) => {
-            const lightness = 85 - 8 * (genreIdx / Math.max(1, group.genres.length - 1));
+        // Use d3.hsl to extract the hue from the baseColor
+        let baseHue = group.hue;
+        if (group.baseColor) {
+            try {
+                baseHue = d3.hsl(group.baseColor).h;
+            } catch (e) {
+                // fallback to group.hue if parsing fails
+            }
+        }
+        // Sort genres alphabetically for lightness assignment
+        const sortedGenres = [...group.genres].sort((a, b) => a.localeCompare(b));
+        group.genres.forEach((genre) => {
+            const sortedIdx = sortedGenres.indexOf(genre);
+            // All genres use the HSL gradient for color
+            const lightness = 90 - 8 * (sortedIdx / Math.max(1, group.genres.length - 1));
+            const color = `hsl(${baseHue},100%,${lightness}%)`;
             lookup[genre] = {
                 group: group.name,
                 groupIdx,
-                genreIdx,
-                color: `hsl(${group.hue},80%,${lightness}%)`
+                genreIdx: group.genres.indexOf(genre),
+                color
             };
         });
     });
@@ -81,18 +100,89 @@ const FLAT_GENRES = GENRE_GROUPS.flatMap(g => g.genres);
 
 // --- Role filter with link colors ---
 const ARTIST_ROLES = [
-    { label: "Composer", color: "#f0f" },
-    { label: "Lyricist", color: "#0f0" },
-    { label: "Performer", color: "#fa0" },
-    { label: "Producer", color: "#0ff" }
+    { label: "Composer", color: "#DF41FF" },
+    { label: "Lyricist", color: "#FF5053" },
+    { label: "Performer", color: "#FFB547" },
+    { label: "Producer", color: "#50DAF1" }
 ];
-const influenceWeights = {
-    InStyleOf: 1.2,
-    InterpolatesFrom: 1.4,
-    CoverOf: 2,
-    LyricalReferenceTo: 1.6,
-    DirectlySamples: 1.8
+
+// Map for quick lookup by role
+const ROLE_COLOR_MAP = {
+    composedBy: "#DF41FF",
+    lyricsBy: "#FF5053",
+    performedBy: "#FFB547",
+    producedBy: "#50DAF1"
 };
+
+// Lightbox component
+const Lightbox = ({ isOpen, onClose, url }) => {
+    if (!isOpen) return null;
+
+    return (
+        <div
+            style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                zIndex: 10000,
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'stretch',
+                padding: '20px'
+            }}
+            onClick={onClose}
+        >
+            <div
+                style={{
+                    position: 'relative',
+                    width: '40%',
+                    height: '100%',
+                    backgroundColor: '#fff',
+                    borderRadius: '8px',
+                    overflow: 'hidden',
+                    boxShadow: '-4px 0 20px rgba(0, 0, 0, 0.3)'
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <button
+                    onClick={onClose}
+                    style={{
+                        position: 'absolute',
+                        top: '10px',
+                        right: '15px',
+                        background: 'rgba(0, 0, 0, 0.7)',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '50%',
+                        width: '30px',
+                        height: '30px',
+                        fontSize: '18px',
+                        cursor: 'pointer',
+                        zIndex: 10001,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}
+                >
+                    ×
+                </button>
+                <iframe
+                    src={url}
+                    style={{
+                        width: '100%',
+                        height: '100%',
+                        border: 'none'
+                    }}
+                    title="Sailor Website"
+                />
+            </div>
+        </div>
+    );
+};
+
 const createTooltip = () => {
     let tooltip = d3.select('#d3-tooltip');
     if (tooltip.empty()) {
@@ -112,30 +202,16 @@ const createTooltip = () => {
     return tooltip;
 };
 
-// Band height mapping for artist arc band
-const bandHeightByYear = [
-    { year: 1985, height: 5 },
-    { year: 1990, height: 10 },
-    { year: 2010, height: 80 },
-    { year: 2015, height: 100 },
-    { year: 2020, height: 250 },
-    { year: 2021, height: 100 },
-    { year: 2023, height: 220 },
-    { year: 2028, height: 350 },
-    { year: 2030, height: 120 },
-    { year: 2033, height: 40 },
-    { year: 2040, height: 10 }
-];
 const labelBandHeightByYear = [
     { year: 1985, height: 5 },
     { year: 1990, height: 10 },
     { year: 2010, height: 50 },
     { year: 2015, height: 80 },
-    { year: 2020, height: 100 },
-    { year: 2021, height: 130 },
-    { year: 2023, height: 130 },
-    { year: 2028, height: 100 },
-    { year: 2030, height: 80 },
+    { year: 2020, height: 130 },
+    { year: 2021, height: 150 },
+    { year: 2023, height: 150 },
+    { year: 2028, height: 130 },
+    { year: 2030, height: 90 },
     { year: 2033, height: 40 },
     { year: 2040, height: 10 }
 ];
@@ -152,6 +228,30 @@ function debounce(fn, delay) {
 }
 
 function Overview({ data }) {
+    const [hoveredArtworkId, setHoveredArtworkId] = useState(null);
+
+    // --- Artist search state ---
+    const [artistSearch, setArtistSearch] = useState("");
+    const [showArtistDropdown, setShowArtistDropdown] = useState(false);
+    const searchInputRef = useRef();
+
+    // --- Lightbox state ---
+    const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+    const [lightboxUrl, setLightboxUrl] = useState("");
+
+    // Handle escape key to close lightbox
+    useEffect(() => {
+        const handleEscape = (event) => {
+            if (event.key === 'Escape' && isLightboxOpen) {
+                setIsLightboxOpen(false);
+            }
+        };
+
+        if (isLightboxOpen) {
+            document.addEventListener('keydown', handleEscape);
+            return () => document.removeEventListener('keydown', handleEscape);
+        }
+    }, [isLightboxOpen]);
 
     // Collapsible filter state
     const [showGenreFilter, setShowGenreFilter] = useState(false);
@@ -214,7 +314,7 @@ function Overview({ data }) {
     }, [data.nodes]);
     const ref = useRef();
     const [svgHeight, setSvgHeight] = useState(1000); // Default height
-
+    const zoomTransformRef = useRef(d3.zoomIdentity);
     // Dynamically update height based on width
     useEffect(() => {
         function updateHeight() {
@@ -321,6 +421,13 @@ function Overview({ data }) {
             .map(g => ({ ...g, _type: 'group' }))
     ], [visiblePeople, visibleGroups, selectedRoles]);
 
+    // --- Artist search results ---
+    const artistSearchResults = useMemo(() => {
+        if (!artistSearch.trim()) return [];
+        const q = artistSearch.trim().toLowerCase();
+        return artistNodes.filter(a => (a.name || "").toLowerCase().includes(q));
+    }, [artistSearch, artistNodes]);
+
     // --- Visible record labels: only those with visible artworks ---
     const visibleLabels = useMemo(() =>
         recordLabels.filter(l => {
@@ -334,7 +441,7 @@ function Overview({ data }) {
     const [selectedArtworkId, setSelectedArtworkId] = useState(null);
 
     // Memoize arcYears and angleScale
-    const arcYears = useMemo(() => years, [years]);
+    const arcYears = useMemo(() => years.map(String).sort((a, b) => Number(a) - Number(b)), [years]);
     const arcStart = -Math.PI / 4;
     const arcEnd = Math.PI / 4;
     const angleScale = useMemo(() =>
@@ -345,51 +452,34 @@ function Overview({ data }) {
     );
 
     // --- Memoize per-artist tail data for all artists ---
-    const artistTailData = useMemo(() => {
-        const map = {};
-        artistNodes.forEach(node => {
-            const contributedTo = Array.isArray(node.contributedTo)
-                ? node.contributedTo.filter(id => visibleSongAlbumIds.has(id))
-                : [];
-            if (!contributedTo.length) return;
+    // const artistTailData = useMemo(() => {
+    //     const map = {};
+    //     artistNodes.forEach(node => {
+    //         const contributedTo = Array.isArray(node.contributedTo)
+    //             ? node.contributedTo.filter(id => visibleSongAlbumIds.has(id))
+    //             : [];
+    //         if (!contributedTo.length) return;
 
-            const artworkYears = contributedTo
-                .map(id => {
-                    const art = nodeById[id];
-                    return art ? String(art.release_date) : null;
-                })
-                .filter(y => y !== null);
-            const influenceYears = Array.isArray(node.influence)
-                ? node.influence.map(inf => inf.year).filter(y => !!y)
-                : [];
-            const yearsSet = new Set([...artworkYears, ...influenceYears]);
-            const yearsList = Array.from(yearsSet).sort((a, b) => Number(a) - Number(b));
+    //         const artworkYears = contributedTo
+    //             .map(id => {
+    //                 const art = nodeById[id];
+    //                 return art ? String(art.release_date) : null;
+    //             })
+    //             .filter(y => y !== null);
+    //         const influenceYears = Array.isArray(node.influence)
+    //             ? node.influence.map(inf => inf.year).filter(y => !!y)
+    //             : [];
+    //         const yearsSet = new Set([...artworkYears, ...influenceYears]);
+    //         const yearsList = Array.from(yearsSet).sort((a, b) => Number(a) - Number(b));
 
-            let influenceByYear = {};
-            let cumulative = 0;
-            let hasKnownInfluence = false;
-            if (Array.isArray(node.influence)) {
-                const influences = node.influence
-                    .filter(inf => inf.year && influenceWeights[inf.type])
-                    .sort((a, b) => Number(a.year) - Number(b.year));
-                hasKnownInfluence = influences.length > 0;
-                const yearToWeight = {};
-                influences.forEach(inf => {
-                    yearToWeight[inf.year] = (yearToWeight[inf.year] || 0) + influenceWeights[inf.type];
-                });
-                yearsList.forEach(year => {
-                    if (yearToWeight[year]) {
-                        cumulative += yearToWeight[year];
-                    }
-                    influenceByYear[year] = cumulative;
-                });
-            } else {
-                yearsList.forEach(year => { influenceByYear[year] = 0; });
-            }
-            map[node.id] = { yearsList, influenceByYear, hasKnownInfluence };
-        });
-        return map;
-    }, [artistNodes, data.nodes, visibleSongAlbumIds, nodeById]);
+    //         let influenceByYear = {};
+            
+    //         let hasKnownInfluence = false;
+
+    //         map[node.id] = { yearsList, influenceByYear, hasKnownInfluence };
+    //     });
+    //     return map;
+    // }, [artistNodes, data.nodes, visibleSongAlbumIds, nodeById]);
 
     // Memoize the draw function
     const draw = useCallback(() => {
@@ -403,23 +493,39 @@ function Overview({ data }) {
         const arcAngle = Math.abs(arcEnd - arcStart);
         const centerX = width / 2;
         // Adjust arcMidY and centerY to keep arc visible and centered
-        const arcMidY = height * 0.8; // Lowered to fit arc in view
+        const arcMidY = height * 0.85; // Lowered to fit arc in view
         const centerY = arcMidY - radius * Math.cos(arcAngle / 2);
-        const zoomArcMidY = height * 0.2;
         const svg = d3.select(ref.current);
 
-        svg.style('background', '#111');
+        svg.style('background', '#030007');
         // --- ZOOM LOGIC ---
-        const filteredYears = Array.from(new Set(filteredNodes.map(n => n.release_date))).sort();
-        const filterActive = (selectedGenres.size !== genres.length || influenceGenres.size > 0 || selectedArtistId || selectedLabelId);
-        const arcYears = years;
+        const arcYears = years.map(String);
         const angleScale = d3.scalePoint()
             .domain(arcYears)
             .range([arcStart, arcEnd]);
 
-        let zoomTransform = d3.zoomIdentity;
-        // Removed automatic zoom logic - always use identity transform
+        let zoomTransform = zoomTransformRef.current || d3.zoomIdentity;
+        // Use the stored zoom transform so zoom/pan is preserved
+        let contributorIds = new Set();
+        // let extraContributors = [];
+        // if (selectedArtistId) {
+        //     contributorIds.forEach(id => {
+        //       if (!artistNodes.some(n => n.id === id)) {
+        //         // Find the node in people or groups
+        //         let node = people.find(p => p.id === id) || groups.find(g => g.id === id);
+        //         if (node) extraContributors.push({ ...node, _type: node["Node Type"].toLowerCase() });
+        //       }
+        //     });
+        //   }
+        //   const allArtistNodes = [...artistNodes, ...extraContributors];
 
+        let highlightSet = null;
+if (hoveredArtworkId && nodeById[hoveredArtworkId]) {
+    const hovered = nodeById[hoveredArtworkId];
+    highlightSet = new Set([String(hoveredArtworkId)]);
+    if (Array.isArray(hovered.influenced)) hovered.influenced.forEach(id => highlightSet.add(String(id)));
+    if (Array.isArray(hovered.influencedBy)) hovered.influencedBy.forEach(id => highlightSet.add(String(id)));
+}
         const g = svg.append('g')
             .attr('class', 'zoom-group')
             .attr('transform', zoomTransform);
@@ -438,17 +544,17 @@ function Overview({ data }) {
             });
 
         const minBarWidth = 0.5;
-        const maxBarWidth = 2.5;
+        const maxBarWidth = 2.0;
         const yearRange = Math.max(arcYears.length, 1);
         const barWidth = Math.max(minBarWidth, Math.min(maxBarWidth, 3 - (yearRange - 2) * 0.04));
-        const barGap = 1;
-        const groupOffset = 40;
+        const barGap = 0.5;
+        const groupOffset = 22;
 
         const tooltip = createTooltip();
 
         // --- Draw arc and ticks/labels (always)
         const arc = d3.arc()
-            .innerRadius(radius - 20)
+            .innerRadius(radius - 10)
             .outerRadius(radius)
             .startAngle(arcStart)
             .endAngle(arcEnd);
@@ -460,33 +566,57 @@ function Overview({ data }) {
 
         // Responsive tick/label sizing
         const minFontSize = 4;
-        const minTickLength = 3;
-        let maxFontSize = 8;
-        let maxTickLength = 10;
+        const minTickLength = 8;
+        let maxFontSize = 6;
+        let maxTickLength = 20;
         if (width > 2000) {
-            maxFontSize = 14;
-            maxTickLength = 18;
+            maxFontSize = 12;
+            maxTickLength = 20;
+        }else if (width > 1600) {
+            maxFontSize = 10;
+            maxTickLength = 20;
+        }else if (width > 1200) {
+            maxFontSize = 8;
+            maxTickLength = 20;
         }
         const fontSize = Math.max(minFontSize, Math.min(maxFontSize, width / 80));
         const tickLength = Math.max(minTickLength, Math.min(maxTickLength, width / 50));
+        const tickStartRadius = radius + groupOffset; // 2px past the group center, adjust as needed
+        const shortTickLen = tickLength * 1.1;
+        const longTickLen = tickLength * 1.7;
 
         arcYears.forEach(year => {
             const angle = angleScale(year) - Math.PI / 2;
+            // Top of tick: at the bottom of the genre bars
+            const tickTopX = centerX + Math.cos(angle) * tickStartRadius;
+            const tickTopY = centerY + Math.sin(angle) * tickStartRadius;
+
+            const isMajorTick = (parseInt(year) % 5 === 0);
+            const tickLen = isMajorTick ? longTickLen : shortTickLen;
+
+            // Bottom of tick: inward from the genre bars
+            const tickBottomX = centerX + Math.cos(angle) * (tickStartRadius - tickLen);
+            const tickBottomY = centerY + Math.sin(angle) * (tickStartRadius - tickLen);
+
             g.append('line')
-                .attr('x1', centerX + Math.cos(angle) * (radius + tickLength + 20))
-                .attr('y1', centerY + Math.sin(angle) * (radius + tickLength + 20))
-                .attr('x2', centerX + Math.cos(angle) * (radius - tickLength))
-                .attr('y2', centerY + Math.sin(angle) * (radius - tickLength))
+                .attr('x1', tickTopX)
+                .attr('y1', tickTopY)
+                .attr('x2', tickBottomX)
+                .attr('y2', tickBottomY)
                 .attr('stroke', '#fff')
-                .attr('stroke-width', 1.5);
-            g.append('text')
-                .attr('x', centerX + Math.cos(angle) * (radius - tickLength - 14))
-                .attr('y', centerY + Math.sin(angle) * (radius - tickLength - 14))
-                .attr('text-anchor', 'middle')
-                .attr('font-size', fontSize)
-                .attr('alignment-baseline', 'middle')
-                .attr('fill', '#fff')
-                .text(year);
+                .attr('stroke-width', isMajorTick ? 2.2 : 1.2);
+
+            // Label only for major ticks, at the bottom (inner end) of the tick
+            if (isMajorTick) {
+                g.append('text')
+                    .attr('x', tickBottomX)
+                    .attr('y', tickBottomY + 8)
+                    .attr('text-anchor', 'middle')
+                    .attr('font-size', fontSize)
+                    .attr('alignment-baseline', 'middle')
+                    .attr('fill', '#fff')
+                    .text(year);
+            }
         });
 
         // --- Store positions for artworks and artists for link drawing ---
@@ -495,7 +625,7 @@ function Overview({ data }) {
 
         // --- PIE CHARTS FOR EACH YEAR (only when influence filter is active) ---
         const pieMinRadius = 5;
-        const pieMaxRadius = 24;
+        const pieMaxRadius = 18;
         if (influenceGenres.size === genres.length) {
 
             arcYears.forEach(year => {
@@ -530,7 +660,7 @@ function Overview({ data }) {
                     .outerRadius(pieRadius);
 
                 const angle = angleScale(year) - Math.PI / 2;
-                const pieArcRadius = radius - 100;
+                const pieArcRadius = radius - 60;
                 const pieX = centerX + Math.cos(angle) * pieArcRadius;
                 const pieY = centerY + Math.sin(angle) * pieArcRadius;
 
@@ -593,9 +723,15 @@ function Overview({ data }) {
                     : Number(yearsArr[mid]);
             }
             const yearStr = String(medianYear);
-            // Add jitter to angle to reduce overlap
+            // Add deterministic jitter to angle to reduce overlap
             const baseAngle = arcYears.includes(yearStr) ? angleScale(yearStr) - Math.PI / 2 : angleScale(arcYears[0]) - Math.PI / 2;
-            const angleJitter = (Math.random() - 0.5) * 0.05; // ~1 degrees jitter
+            // Use deterministic jitter based on label ID
+            const idString = String(label.id || '');
+            const hash = idString.split('').reduce((a, b) => {
+                a = ((a << 5) - a) + b.charCodeAt(0);
+                return a & a;
+            }, 0);
+            const angleJitter = ((hash % 100) / 100 - 0.5) * 0.05; // Deterministic angle jitter
             const angle = baseAngle + angleJitter;
             let bandHeight = labelBandHeightByYear[0].height;
             for (let i = 1; i < labelBandHeightByYear.length; i++) {
@@ -610,7 +746,8 @@ function Overview({ data }) {
             if (medianYear > labelBandHeightByYear[labelBandHeightByYear.length - 1].year) {
                 bandHeight = labelBandHeightByYear[labelBandHeightByYear.length - 1].height;
             }
-            const r = radius -300 + (Math.random() - 0.5) * bandHeight; // more jitter for more spread
+            const radiusJitter = ((hash % 1000) / 1000 - 0.5) * bandHeight; // Deterministic radius jitter
+            const r = radius -180 + radiusJitter;
 
             const x = centerX + Math.cos(angle) * r;
             const y = centerY + Math.sin(angle) * r;
@@ -622,8 +759,7 @@ function Overview({ data }) {
             // Color and highlight
             const isSelected = selectedLabelId === label.id;
             const opacity = isSelected ? 1 : 0.7;
-            const stroke = isSelected ? '#f80' : 'none';
-            const strokeWidth = isSelected ? 2 : 1;
+            const stroke = isSelected ? '#f80' : 'none';    
 
             // Store position for links
             artistPositions[label.id] = { x, y };
@@ -668,10 +804,10 @@ function Overview({ data }) {
             const totalBarCount = genres.length;
             const barWidthPx = barWidth + barGap;
             const barSpan = (totalBarCount - 1) * barWidthPx;
-            const x1 = groupBaseX + tanX * (-barSpan / 2);
-            const y1 = groupBaseY + tanY * (-barSpan / 2);
-            const x2 = groupBaseX + tanX * (barSpan / 2);
-            const y2 = groupBaseY + tanY * (barSpan / 2);
+            const x1 = groupBaseX + tanX * (-barSpan / 2)*0.95;
+            const y1 = groupBaseY + tanY * (-barSpan / 2)*0.95;
+            const x2 = groupBaseX + tanX * (barSpan / 2)*0.95;
+            const y2 = groupBaseY + tanY * (barSpan / 2)*0.95;
 
             g.append('line')
                 .attr('x1', x1)
@@ -694,25 +830,25 @@ function Overview({ data }) {
                         const dots = [
                             ...genreData.filter(d => d["Node Type"].toLowerCase() === 'song' && d.notable).map(d => ({
                                 ...d,
-                                r: 1,
+                                r: 0.7,
                                 color: genreLookup[genre]?.color || "#fff",
                                 label: "Notable Song"
                             })),
                             ...genreData.filter(d => d["Node Type"].toLowerCase() === 'song' && !d.notable).map(d => ({
                                 ...d,
-                                r: 1,
+                                r: 0.7,
                                 color: genreLookup[genre]?.color || "#fff",
                                 label: "Song"
                             })),
                             ...genreData.filter(d => d["Node Type"].toLowerCase() === 'album' && d.notable).map(d => ({
                                 ...d,
-                                r: 1.5,
+                                r: 1.0,
                                 color: genreLookup[genre]?.color || "#fff",
                                 label: "Notable Album"
                             })),
                             ...genreData.filter(d => d["Node Type"].toLowerCase() === 'album' && !d.notable).map(d => ({
                                 ...d,
-                                r: 1.5,
+                                r: 1.0,
                                 color: genreLookup[genre]?.color || "#fff",
                                 label: "Album"
                             })),
@@ -738,11 +874,20 @@ function Overview({ data }) {
                         const barAngle = Math.atan2(y - centerY, x - centerX);
 
                         dots.forEach((dot, i) => {
-                            const dotRadius = personFilterActive ? dot.r * 6 : filterActivePart ? dot.r * 3 : dot.r;
+                            const dotRadius = personFilterActive ? dot.r * 4 : filterActivePart ? dot.r * 3 : dot.r;
                             const r = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2) + stackOffset + dotRadius;
                             const dotX = centerX + Math.cos(barAngle) * r;
                             const dotY = centerY + Math.sin(barAngle) * r;
-                            artworkPositions[dot.id] = { x: dotX, y: dotY };
+artworkPositions[dot.id] = { x: dotX, y: dotY };
+                            let dotOpacity = opacity; // your existing logic
+if (highlightSet) {
+    // Only highlight if this dot is related to the hovered artwork below the timeline
+    if (!highlightSet.has(String(dot.id))) {
+        dotOpacity = 0.1;
+    } else {
+        dotOpacity = 1.0;
+    }
+}
 
                             if (dot.label === "Notable Song" || dot.label === "Notable Album") {
                                 g.append('circle')
@@ -750,8 +895,9 @@ function Overview({ data }) {
                                     .attr('cy', dotY)
                                     .attr('r', dotRadius)
                                     .attr('fill', dot.color)
-                                    .attr('opacity', opacity)
+                                    .attr('opacity', dotOpacity)
                                     .on('mousemove', (event) => {
+                                        setHoveredArtworkId(dot.id);
                                         tooltip
                                             .style('display', 'block')
                                             .html(
@@ -761,7 +907,10 @@ function Overview({ data }) {
                                             .style('left', (event.pageX + 12) + 'px')
                                             .style('top', (event.pageY - 24) + 'px');
                                     })
-                                    .on('mouseleave', () => tooltip.style('display', 'none'))
+                                    .on('mouseleave', () =>{
+                                        setHoveredArtworkId(null);
+                                    tooltip.style('display', 'none')
+                                    })
                                     .on('click', (event) => {
                                         event.stopPropagation();
                                         setSelectedArtworkId(dot.id === selectedArtworkId ? null : dot.id);
@@ -771,7 +920,7 @@ function Overview({ data }) {
                                     .attr('cy', dotY)
                                     .attr('r', dotRadius * 0.45)
                                     .attr('fill', '#fff')
-                                    .attr('opacity', opacity)
+                                    .attr('opacity', dotOpacity)
                                     .style('pointer-events', 'none'); // Prevent this small circle from capturing mouse events
                             } else {
                                 g.append('circle')
@@ -779,8 +928,9 @@ function Overview({ data }) {
                                     .attr('cy', dotY)
                                     .attr('r', dotRadius)
                                     .attr('fill', dot.color)
-                                    .attr('opacity', opacity)
+                                    .attr('opacity', dotOpacity)
                                     .on('mousemove', (event) => {
+                                        setHoveredArtworkId(dot.id);
                                         tooltip
                                             .style('display', 'block')
                                             .html(
@@ -790,7 +940,10 @@ function Overview({ data }) {
                                             .style('left', (event.pageX + 12) + 'px')
                                             .style('top', (event.pageY - 24) + 'px');
                                     })
-                                    .on('mouseleave', () => tooltip.style('display', 'none'))
+                                    .on('mouseleave', () => {
+                                        setHoveredArtworkId(null);
+                                        tooltip.style('display', 'none')
+                                    })
                                     .on('click', (event) => {
                                         event.stopPropagation();
                                         setSelectedArtworkId(dot.id === selectedArtworkId ? null : dot.id);
@@ -800,7 +953,7 @@ function Overview({ data }) {
                                     .attr('cy', dotY)
                                     .attr('r', dotRadius * 0.45)
                                     .attr('fill', '#000')
-                                    .attr('opacity', opacity)
+                                    .attr('opacity', dotOpacity)
                                     .style('pointer-events', 'none');
                             }
                             stackOffset += dotRadius * 2 + 0.5;
@@ -813,624 +966,659 @@ function Overview({ data }) {
         });
         // Draw artists only if there are filtered nodes and artistNodes
         if (filteredNodes.length > 0 && artistNodes.length > 0) {
+            // --- Compute min/max total artworks for all visible artists (for circle size) ---
+            let minTotalArtworks = Infinity, maxTotalArtworks = -Infinity;
+            artistNodes.forEach(node => {
+                const total = Array.isArray(node.contributedTo) ? node.contributedTo.length : 0;
+                if (total < minTotalArtworks) minTotalArtworks = total;
+                if (total > maxTotalArtworks) maxTotalArtworks = total;
+            });
             const minArtistRadius = 1;
             const maxArtistRadius = 7;
-            const bandCenter = radius + 450;
-
-            // Find the max number of artworks contributed by any artist (for scaling)
-            const maxArtworks = Math.max(
-                1,
-                ...artistNodes.map(node => {
-                    const contributedTo = Array.isArray(node.contributedTo)
-                        ? node.contributedTo
-                        : [];
-                    return contributedTo.length;
-                })
-            );
-
+            // --- New log10 banded artist layout with angle by year and radial spread by artworks ---
+            const minBand = radius + 300;
+            const bandStep = 60;
+            const bandWidth = 60;
+            function getBandIdx(inf) {
+                if (!inf || inf === 0) return 0;
+                return 1 + Math.floor(Math.log10(inf));
+            }
+            // Map: bandIdx -> array of artists
+            const bandMap = {};
             artistNodes.forEach(node => {
-                // Only show if contributed to visible songs/albums
                 const contributedTo = Array.isArray(node.contributedTo)
                     ? node.contributedTo.filter(id => visibleSongAlbumIds.has(id))
                     : [];
                 if (!contributedTo.length) return;
-
-                // --- ANGLE: Use lastPublishedYear if available, else fallback to average of artwork years ---
-                const lastYear = String(node.lastPublishedYear);
-                let artistAngle;
-                if (lastYear && arcYears.includes(lastYear)) {
-                    artistAngle = angleScale(lastYear) - Math.PI / 2;
-                } else {
-                    // fallback: average of their artworks' years
-                    const allArtworks = contributedTo.map(id => nodeById[id]).filter(Boolean);
-                    const angles = allArtworks.map(art => {
-                        const year = art.release_date;
-                        if (!year) return null;
-                        if (!arcYears.includes(String(year))) return null;
-                        return angleScale(String(year)) - Math.PI / 2;
-                    }).filter(a => a !== null);
-                    artistAngle = angles.length === 0 ? 0 : angles.reduce((a, b) => a + b, 0) / angles.length;
-                }
-
-                // --- RADIUS: Use node.totalInfluence (normalized) ---
                 const influenceScore = typeof node.totalInfluence === 'number' ? node.totalInfluence : 0;
-                const allInfluenceScores = artistNodes.map(n => typeof n.totalInfluence === 'number' ? n.totalInfluence : 0);
-                const minInfluence = Math.min(...allInfluenceScores);
-                const maxInfluence = Math.max(...allInfluenceScores);
-                // Set band center based on influence score (map to a reasonable range)
-                const minBand = radius + 350; // Reduced from 300
-                const maxBand = radius + 600; // Increased from 600
-                const r = minInfluence === maxInfluence
-                    ? minBand
-                    : minBand + ((influenceScore - minInfluence) / (maxInfluence - minInfluence)) * (maxBand - minBand);
-
-                // Add jitter based on artist ID to prevent overlap when influence scores are the same
-                const idString = String(node.id || '');
-                const hash = idString.split('').reduce((a, b) => {
-                    a = ((a << 5) - a) + b.charCodeAt(0);
-                    return a & a;
-                }, 0);
-                const jitterRadius = 60; // Use your preferred jitter radius
-                const jitterAngle = (hash % 360) * (Math.PI / 180);
-                const jitterDistance = Math.sqrt((hash % 1000) / 1000) * jitterRadius; // Uniform ring distribution
-                const jitterX = Math.cos(jitterAngle) * jitterDistance;
-                const jitterY = Math.sin(jitterAngle) * jitterDistance;
-
-                // Add a small random jitter to avoid overlap
-                const angle = artistAngle + (Math.random() - 0.5) * 0.03; // Increased from 0.1 to 0.15
-                const x = centerX + Math.cos(angle) * r + jitterX;
-                const y = centerY + Math.sin(angle) * r + jitterY;
-                artistPositions[node.id] = { x, y };
-
-                // Color logic: Sailor is gold, all others light yellow
-                const isSailor = (node.name || '').toLowerCase().includes('sailor');
-                let fillColor = '#fffde7';
-                let artistOpacity = 0.70;
-                // Highlight logic for selected artwork
-                if (selectedArtworkId) {
-                    const artworkNode = nodeById[selectedArtworkId];
-                    if (artworkNode) {
-                        // Collect all roles this artist has on the selected artwork
-                        const roles = [
-                            { key: "performedBy", color: "#fa0" },
-                            { key: "composedBy", color: "#f0f" },
-                            { key: "producedBy", color: "#0ff" },
-                            { key: "lyricsBy", color: "#0f0" }
-                        ].filter(({ key }) =>
-                            Array.isArray(artworkNode[key]) && artworkNode[key].includes(node.id)
-                        );
-
-                        if (roles.length === 1) {
-                            fillColor = roles[0].color;
-                            artistOpacity = 0.85;
-                        } else {
-                            artistOpacity = 0.3; // fade out non-contributors
-                        }
+                const bandIdx = getBandIdx(influenceScore);
+                if (!bandMap[bandIdx]) bandMap[bandIdx] = [];
+                bandMap[bandIdx].push({ ...node, _contributedTo: contributedTo });
+            });
+            Object.entries(bandMap).forEach(([bandIdxStr, artistsInBand]) => {
+                const bandIdx = Number(bandIdxStr);
+                const bandInner = minBand + bandIdx * bandStep;
+                const bandOuter = bandInner + bandWidth;
+                // Find min/max number of artworks in this band
+                let minArtworks = Infinity, maxArtworks = -Infinity;
+                artistsInBand.forEach(a => {
+                    const n = a._contributedTo.length;
+                    if (n < minArtworks) minArtworks = n;
+                    if (n > maxArtworks) maxArtworks = n;
+                });
+                // For each artist, compute angle by lastPublishedYear, radius by #artworks
+                artistsInBand.forEach(node => {
+                    const totalArtworks = node._contributedTo.length;
+                    // Angle by lastPublishedYear
+                    const lastYear = String(node.lastPublishedYear);
+                    let artistAngle;
+                    if (lastYear && arcYears.includes(lastYear)) {
+                        artistAngle = angleScale(lastYear) - Math.PI / 2;
+                    } else {
+                        // fallback: average of their artworks' years
+                        const allArtworks = node._contributedTo.map(id => nodeById[id]).filter(Boolean);
+                        const angles = allArtworks.map(art => {
+                            const year = art.release_date;
+                            if (!year) return null;
+                            if (!arcYears.includes(String(year))) return null;
+                            return angleScale(String(year)) - Math.PI / 2;
+                        }).filter(a => a !== null);
+                        artistAngle = angles.length === 0 ? 0 : angles.reduce((a, b) => a + b, 0) / angles.length;
                     }
-                }
-                // If an artist is selected, highlight all connected artists
-                else if (selectedArtistId && Array.isArray(node.contributedTo) && node.contributedTo.length > 0) {
-                    // Get all artworks the selected artist contributed to
-                    const selectedArtist = artistNodes.find(n => n.id === selectedArtistId);
-                    const selectedArtworks = selectedArtist && Array.isArray(selectedArtist.contributedTo)
-                        ? selectedArtist.contributedTo
-                        : [];
+                    // Radial position by #artworks in band
+                    let t = 0.5;
+                    if (maxArtworks > minArtworks) {
+                        t = (totalArtworks - minArtworks) / (maxArtworks - minArtworks);
+                    }
+                    const r = bandInner + t * (bandOuter - bandInner);
+                    // Add a small deterministic jitter to avoid perfect overlap
+                    const idString = String(node.id || '');
+                    const hash = idString.split('').reduce((a, b) => {
+                        a = ((a << 5) - a) + b.charCodeAt(0);
+                        return a & a;
+                    }, 0);
+                    const angleJitter = ((hash % 100) / 100 - 0.5) * 0.08;
+                    const rJitter = ((hash % 1000) / 1000 - 0.5) * 40;
+                    const finalAngle = artistAngle + angleJitter;
+                    const finalR = r + rJitter;
+                    const x = centerX + Math.cos(finalAngle) * finalR;
+                    const y = centerY + Math.sin(finalAngle) * finalR;
+                    artistPositions[node.id] = { x, y };
+                    // --- Draw artist node (circle size by total artworks) ---
+                    const totalArtworksAll = Array.isArray(node.contributedTo) ? node.contributedTo.length : 0;
+                    let tSize = 0.5;
+                    if (maxTotalArtworks > minTotalArtworks) {
+                        tSize = (totalArtworksAll - minTotalArtworks) / (maxTotalArtworks - minTotalArtworks);
+                    }
+                    const artistRadius = minArtistRadius + (maxArtistRadius - minArtistRadius) * tSize;
+                    const aboveTimelineArtworkIds = new Set(filteredNodes.map(n => n.id));
+                    const numArtworks = Array.isArray(node.contributedTo)
+                                        ? node.contributedTo.filter(id => aboveTimelineArtworkIds.has(id)).length
+                                        : 0;
 
-                    // Gather all contributors to those artworks (including the selected artist)
-                    let connectedLinkTypes = new Set();
-                    let isConnected = false;
-                    selectedArtworks.forEach(artworkId => {
-                        const artworkNode = nodeById[artworkId];
+                    let fillColor = '#fffde7';
+                    let artistOpacity = 0.70;
+                    // Highlight logic for selected artwork
+                    if (selectedArtworkId) {
+                        const artworkNode = nodeById[selectedArtworkId];
                         if (artworkNode) {
-                            [
-                                { key: "performedBy", color: "#fa0" },
-                                { key: "composedBy", color: "#f0f" },
-                                { key: "producedBy", color: "#0ff" },
-                                { key: "lyricsBy", color: "#0f0" }
-                            ].forEach(({ key, color }) => {
-                                if (Array.isArray(artworkNode[key]) && artworkNode[key].includes(node.id)) {
-                                    connectedLinkTypes.add(color);
-                                    isConnected = true;
+                            // Collect all roles this artist has on the selected artwork
+                            const roles = [
+                                { key: "performedBy", color: ROLE_COLOR_MAP.performedBy },
+                                { key: "composedBy", color: ROLE_COLOR_MAP.composedBy },
+                                { key: "producedBy", color: ROLE_COLOR_MAP.producedBy },
+                                { key: "lyricsBy", color: ROLE_COLOR_MAP.lyricsBy }
+                            ].filter(({ key }) =>
+                                Array.isArray(artworkNode[key]) && artworkNode[key].includes(node.id)
+                            );
+                            if (roles.length === 1) {
+                                fillColor = roles[0].color;
+                                artistOpacity = 0.85;
+                            } else {
+                                artistOpacity = 0.3; // fade out non-contributors
+                            }
+                        }
+                    }
+                    // If an artist is selected, highlight all connected artists
+                    else if (selectedArtistId && Array.isArray(node.contributedTo) && node.contributedTo.length > 0) {
+                        // Get all artworks the selected artist contributed to
+                        const selectedArtist = artistNodes.find(n => n.id === selectedArtistId);
+                        const selectedArtworks = selectedArtist && Array.isArray(selectedArtist.contributedTo)
+                            ? selectedArtist.contributedTo
+                            : [];
+                        // Gather all contributors to those artworks (including the selected artist)
+                        let connectedLinkTypes = new Set();
+                        let isConnected = false;
+                        selectedArtworks.forEach(artworkId => {
+                            const artworkNode = nodeById[artworkId];
+                            if (artworkNode) {
+                                [
+                                    { key: "performedBy", color: ROLE_COLOR_MAP.performedBy },
+                                    { key: "composedBy", color: ROLE_COLOR_MAP.composedBy },
+                                    { key: "producedBy", color: ROLE_COLOR_MAP.producedBy },
+                                    { key: "lyricsBy", color: ROLE_COLOR_MAP.lyricsBy }
+                                ].forEach(({ key, color }) => {
+                                    if (Array.isArray(artworkNode[key]) && artworkNode[key].includes(node.id)) {
+                                        connectedLinkTypes.add(color);
+                                        isConnected = true;
+                                    }
+                                });
+                            }
+                        });
+                        // If this artist is the selected artist or is connected, color by link type
+                        if ((selectedArtistId === node.id || isConnected) && connectedLinkTypes.size === 1) {
+                            fillColor = Array.from(connectedLinkTypes)[0];
+                        }
+                        artistOpacity = 0.85;
+                    }
+                    const isSelected = selectedArtistId === node.id;
+                    const opacity = isSelected ? 1 : artistOpacity;
+                    const stroke = isSelected ? '#ff0' : 'none';
+                    const strokeWidth = isSelected ? 2 : 0.7;
+                    // --- Draw variable-width arc tail for selected artist ---
+                    if (selectedArtistId === node.id && Array.isArray(node.contributedTo) && node.contributedTo.length > 1) {
+                        // 1. Get all contributed years, sorted
+                        const yearsContributed = node.contributedTo
+                            .map(id => {
+                                const art = nodeById[id];
+                                return art ? Number(art.release_date) : null;
+                            })
+                            .filter(y => y !== null)
+                            .sort((a, b) => a - b);
+                        if (yearsContributed.length > 1) {
+                            const firstYear = String(yearsContributed[0]);
+                            const lastYear = String(yearsContributed[yearsContributed.length - 1]);
+                            // Start and end angles
+                            const startAngle = arcYears.includes(firstYear) ? angleScale(firstYear) - Math.PI / 2 : artistAngle;
+                            // Use the actual angle to the jittered artist position
+                            const actualEndAngle = Math.atan2(y - centerY, x - centerX);
+                            let endAngle = actualEndAngle;
+                            if (endAngle <= startAngle) endAngle += 2 * Math.PI;
+                            // Start and end positions
+                            let startRadius;
+                            if (bandIdx === 0) {
+                                // For band 0, start at the artist's radius (same as end)
+                                startRadius = finalR;
+                            } else {
+                                // For other bands, start at the baseline
+                                startRadius = minBand + rJitter;
+                            }
+                            // Apply the same jitter to the starting position to avoid "going up" effect
+                            const startX = centerX + Math.cos(startAngle) * startRadius + 0;
+                            const startY = centerY + Math.sin(startAngle) * startRadius + 0;
+                            // Use the exact artist position for the tail end
+                            const endX = x;
+                            const endY = y;
+                            // --- Use node.influence (array: [{year, score}, ...]) ---
+                            const influenceArray = Array.isArray(node.influence) ? node.influence : [];
+                            // Filter out non-numeric years and handle "Unknown" influence
+                            const cleanInfluenceArray = [];
+                            let unknownInfluence = 0;
+                            influenceArray.forEach(inf => {
+                                if (inf.year === "Unknown" || isNaN(Number(inf.year))) {
+                                    unknownInfluence += inf.score || 0;
+                                } else {
+                                    cleanInfluenceArray.push(inf);
                                 }
                             });
-                        }
-                    });
-
-                    // If this artist is the selected artist or is connected, color by link type
-                    if ((selectedArtistId === node.id || isConnected) && connectedLinkTypes.size === 1) {
-                        fillColor = Array.from(connectedLinkTypes)[0];
-                    }
-                    artistOpacity = 0.85;
-                }
-
-                // Artist size depends on total number of artworks contributed (not just visible)
-                const totalArtworks = Array.isArray(node.contributedTo) ? node.contributedTo.length : 0;
-                const artistRadius = minArtistRadius + (maxArtworks > 1 ? (maxArtistRadius - minArtistRadius) * (totalArtworks - 1) / (maxArtworks - 1) : 0);
-                const numArtworks = contributedTo.length;
-                
-                const isSelected = selectedArtistId === node.id;
-                const opacity = isSelected ? 1 : artistOpacity;
-                const stroke = isSelected ? '#ff0' : 'none';
-                const strokeWidth = isSelected ? 2 : 0.7;
-
-                // --- Draw variable-width arc tail for selected artist ---
-                if (selectedArtistId === node.id && Array.isArray(node.contributedTo) && node.contributedTo.length > 1) {
-                    // 1. Get all contributed years, sorted
-                    const yearsContributed = node.contributedTo
-                        .map(id => {
-                            const art = nodeById[id];
-                            return art ? Number(art.release_date) : null;
-                        })
-                        .filter(y => y !== null)
-                        .sort((a, b) => a - b);
-
-                    if (yearsContributed.length > 1) {
-                        const firstYear = String(yearsContributed[0]);
-                        const lastYear = String(yearsContributed[yearsContributed.length - 1]);
-                        // Start and end angles
-                        const startAngle = arcYears.includes(firstYear) ? angleScale(firstYear) - Math.PI / 2 : angle;
-                        // Use the actual angle to the jittered artist position
-                        const actualEndAngle = Math.atan2(y - centerY, x - centerX);
-                        let endAngle = actualEndAngle;
-                        if (endAngle <= startAngle) endAngle += 2 * Math.PI;
-
-                        // Start and end positions
-                        const startRadius = radius + 350;
-                        // Apply the same jitter to the starting position to avoid "going up" effect
-                        const startX = centerX + Math.cos(startAngle) * startRadius + jitterX;
-                        const startY = centerY + Math.sin(startAngle) * startRadius + jitterY;
-                        // Use the exact artist position for the tail end
-                        const endX = x;
-                        const endY = y;
-
-                        // --- Use node.influence (array: [{year, score}, ...]) ---
-                        const influenceArray = Array.isArray(node.influence) ? node.influence : [];
-                        // Filter out non-numeric years and handle "Unknown" influence
-                        const cleanInfluenceArray = [];
-                        let unknownInfluence = 0;
-                        influenceArray.forEach(inf => {
-                            if (inf.year === "Unknown" || isNaN(Number(inf.year))) {
-                                unknownInfluence += inf.score || 0;
-                            } else {
-                                cleanInfluenceArray.push(inf);
-                            }
-                        });
-                        // Distribute unknown influence proportionally across active years
-                        if (unknownInfluence > 0 && yearsContributed.length > 0) {
-                            const avgInfluencePerYear = unknownInfluence / yearsContributed.length;
-                            yearsContributed.forEach(year => {
-                                cleanInfluenceArray.push({
-                                    year: String(year),
-                                    score: avgInfluencePerYear
+                            // Distribute unknown influence proportionally across active years
+                            if (unknownInfluence > 0 && yearsContributed.length > 0) {
+                                const avgInfluencePerYear = unknownInfluence / yearsContributed.length;
+                                yearsContributed.forEach(year => {
+                                    cleanInfluenceArray.push({
+                                        year: String(year),
+                                        score: avgInfluencePerYear
+                                    });
                                 });
-                            });
-                        }
-                        // Build yearsList as sorted union of all artwork years and influence years
-                        const influenceYears = cleanInfluenceArray.map(inf => String(inf.year));
-                        const artworkYears = yearsContributed.map(y => String(y));
-                        const yearsSet = new Set([...artworkYears, ...influenceYears]);
-                        const yearsList = Array.from(yearsSet).sort((a, b) => Number(a) - Number(b));
-
-                        // Build cumulative influence by year with interpolation for unknown years
-                        let influenceByYear = {};
-                        let cumulative = 0;
-                        // First, build a map of year -> cumulative influence for known years
-                        const knownYears = yearsList.filter(year => 
-                            cleanInfluenceArray.some(inf => String(inf.year) === year)
-                        );
-                        let lastKnownIdx = -1;
-                        let lastKnownValue = 0;
-                        let nextKnownIdx = -1;
-                        let nextKnownValue = 0;
-                        // Precompute cumulative sums for known years
-                        let runningSum = 0;
-                        const cumulativeByKnownYear = {};
-                        yearsList.forEach(year => {
-                            const yearInfluences = cleanInfluenceArray.filter(inf => String(inf.year) === year);
-                            if (yearInfluences.length > 0) {
-                                const yearScore = yearInfluences.reduce((sum, inf) => sum + (inf.score || 0), 0);
-                                runningSum += yearScore;
-                                cumulativeByKnownYear[year] = runningSum;
                             }
-                        });
-                        // Now fill influenceByYear with interpolation for unknown years
-                        for (let i = 0; i < yearsList.length; ++i) {
-                            const year = yearsList[i];
-                            if (cumulativeByKnownYear[year] !== undefined) {
-                                cumulative = cumulativeByKnownYear[year];
-                                influenceByYear[year] = cumulative;
-                                lastKnownIdx = i;
-                                lastKnownValue = cumulative;
+                            // Build yearsList as sorted union of all artwork years and influence years
+                            const influenceYears = cleanInfluenceArray.map(inf => String(inf.year));
+                            const artworkYears = yearsContributed.map(y => String(y));
+                            const yearsSet = new Set([...artworkYears, ...influenceYears]);
+                            const yearsList = Array.from(yearsSet).sort((a, b) => Number(a) - Number(b));
+                            // Build cumulative influence by year with interpolation for unknown years
+                            let influenceByYear = {};
+                            let cumulative = 0;
+                            // First, build a map of year -> cumulative influence for known years
+                            const knownYears = yearsList.filter(year => 
+                                cleanInfluenceArray.some(inf => String(inf.year) === year)
+                            );
+                            let lastKnownIdx = -1;
+                            let lastKnownValue = 0;
+                            let nextKnownIdx = -1;
+                            let nextKnownValue = 0;
+                            // Precompute cumulative sums for known years
+                            let runningSum = 0;
+                            const cumulativeByKnownYear = {};
+                            yearsList.forEach(year => {
+                                const yearInfluences = cleanInfluenceArray.filter(inf => String(inf.year) === year);
+                                if (yearInfluences.length > 0) {
+                                    const yearScore = yearInfluences.reduce((sum, inf) => sum + (inf.score || 0), 0);
+                                    runningSum += yearScore;
+                                    cumulativeByKnownYear[year] = runningSum;
+                                }
+                            });
+                            // Now fill influenceByYear with interpolation for unknown years
+                            for (let i = 0; i < yearsList.length; ++i) {
+                                const year = yearsList[i];
+                                if (cumulativeByKnownYear[year] !== undefined) {
+                                    cumulative = cumulativeByKnownYear[year];
+                                    influenceByYear[year] = cumulative;
+                                    lastKnownIdx = i;
+                                    lastKnownValue = cumulative;
+                                } else {
+                                    // Find next known year
+                                    if (nextKnownIdx <= i) {
+                                        nextKnownIdx = -1;
+                                        for (let j = i + 1; j < yearsList.length; ++j) {
+                                            if (cumulativeByKnownYear[yearsList[j]] !== undefined) {
+                                                nextKnownIdx = j;
+                                                nextKnownValue = cumulativeByKnownYear[yearsList[j]];
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (lastKnownIdx === -1 && nextKnownIdx !== -1) {
+                                        // Before first known: flat at next known value
+                                        influenceByYear[year] = nextKnownValue;
+                                    } else if (lastKnownIdx !== -1 && nextKnownIdx === -1) {
+                                        // After last known: flat at last known value
+                                        influenceByYear[year] = lastKnownValue;
+                                    } else if (lastKnownIdx !== -1 && nextKnownIdx !== -1) {
+                                        // Interpolate between last known and next known
+                                        const t = (i - lastKnownIdx) / (nextKnownIdx - lastKnownIdx);
+                                        influenceByYear[year] = lastKnownValue + t * (nextKnownValue - lastKnownValue);
+                                    } else {
+                                        // No known values at all
+                                        influenceByYear[year] = 0;
+                                    }
+                                }
+                            }
+                            const influenceVals = Object.values(influenceByYear);
+                            const minTailInf = Math.min(...influenceVals);
+                            const maxTailInf = Math.max(...influenceVals);
+                            // For each year, calculate the tail radius (distance from center)
+                            const tailMin = Math.sqrt((startX - centerX) ** 2 + (startY - centerY) ** 2);
+                            const tailMax = Math.sqrt((endX - centerX) ** 2 + (endY - centerY) ** 2);
+                            let tailRadii;
+                            if (maxTailInf !== minTailInf) {
+                                tailRadii = yearsList.map((year, i) => {
+                                    const val = influenceByYear[year];
+                                    return tailMin + ((val - minTailInf) / (maxTailInf - minTailInf)) * (tailMax - tailMin);
+                                });
                             } else {
-                                // Find next known year
-                                if (nextKnownIdx <= i) {
-                                    nextKnownIdx = -1;
-                                    for (let j = i + 1; j < yearsList.length; ++j) {
-                                        if (cumulativeByKnownYear[yearsList[j]] !== undefined) {
-                                            nextKnownIdx = j;
-                                            nextKnownValue = cumulativeByKnownYear[yearsList[j]];
-                                            break;
+                                // All years unknown: interpolate from start to end
+                                tailRadii = yearsList.map((year, i) => {
+                                    const t = i / (yearsList.length - 1);
+                                    return tailMin + t * (tailMax - tailMin);
+                                });
+                            }
+                            // Interpolate angles from startAngle to endAngle
+                            const angles = yearsList.map((year, i) => {
+                                const t = i / (yearsList.length - 1);
+                                return startAngle + t * (endAngle - startAngle);
+                            });
+                            // Build tail path
+                            const minW = 0.8; // Thinner tip
+                            const maxW = artistRadius * 1.8; // Thicker end
+                            const pointsOuter = [];
+                            const pointsInner = [];
+                            for (let i = 0; i < angles.length; ++i) {
+                                const t = i / (angles.length - 1);
+                                const a = angles[i];
+                                // Use a curve that starts thin and gets thicker (quadratic or cubic)
+                                const widthCurve = t * t; // Quadratic curve for smooth thickening
+                                const w = minW + (maxW - minW) * widthCurve;
+                                const rOuter = tailRadii[i] + w / 2;
+                                const rInner = tailRadii[i] - w / 2;
+                                pointsOuter.push([
+                                    centerX + Math.cos(a) * rOuter,
+                                    centerY + Math.sin(a) * rOuter
+                                ]);
+                                pointsInner.push([
+                                    centerX + Math.cos(a) * rInner,
+                                    centerY + Math.sin(a) * rInner
+                                ]);
+                            }
+                            // Build smooth path using quadratic curves
+                            if (pointsOuter.length > 0 && !isNaN(pointsOuter[0][0]) && !isNaN(pointsOuter[0][1])) {
+                                let d = `M${pointsOuter[0][0]},${pointsOuter[0][1]}`;
+                                for (let i = 1; i < pointsOuter.length; ++i) {
+                                    const prev = pointsOuter[i - 1];
+                                    const curr = pointsOuter[i];
+                                    if (!isNaN(prev[0]) && !isNaN(prev[1]) && !isNaN(curr[0]) && !isNaN(curr[1])) {
+                                        const midX = (prev[0] + curr[0]) / 2;
+                                        const midY = (prev[1] + curr[1]) / 2;
+                                        d += ` Q${prev[0]},${prev[1]} ${midX},${midY}`;
+                                    }
+                                }
+                                // Complete the outer path to the last point
+                                if (pointsOuter.length > 1) {
+                                    const lastPoint = pointsOuter[pointsOuter.length - 1];
+                                    if (!isNaN(lastPoint[0]) && !isNaN(lastPoint[1])) {
+                                        d += ` L${lastPoint[0]},${lastPoint[1]}`;
+                                    }
+                                }
+                                // Inner path (reverse direction)
+                                for (let i = pointsInner.length - 1; i >= 0; --i) {
+                                    if (i === pointsInner.length - 1) {
+                                        const point = pointsInner[i];
+                                        if (!isNaN(point[0]) && !isNaN(point[1])) {
+                                            d += ` L${point[0]},${point[1]}`;
+                                        }
+                                    } else {
+                                        const curr = pointsInner[i];
+                                        const next = pointsInner[i + 1];
+                                        if (!isNaN(curr[0]) && !isNaN(curr[1]) && !isNaN(next[0]) && !isNaN(next[1])) {
+                                            const midX = (curr[0] + next[0]) / 2;
+                                            const midY = (curr[1] + next[1]) / 2;
+                                            d += ` Q${next[0]},${next[1]} ${midX},${midY}`;
                                         }
                                     }
                                 }
-                                if (lastKnownIdx === -1 && nextKnownIdx !== -1) {
-                                    // Before first known: flat at next known value
-                                    influenceByYear[year] = nextKnownValue;
-                                } else if (lastKnownIdx !== -1 && nextKnownIdx === -1) {
-                                    // After last known: flat at last known value
-                                    influenceByYear[year] = lastKnownValue;
-                                } else if (lastKnownIdx !== -1 && nextKnownIdx !== -1) {
-                                    // Interpolate between last known and next known
-                                    const t = (i - lastKnownIdx) / (nextKnownIdx - lastKnownIdx);
-                                    influenceByYear[year] = lastKnownValue + t * (nextKnownValue - lastKnownValue);
-                                } else {
-                                    // No known values at all
-                                    influenceByYear[year] = 0;
-                                }
+                                d += 'Z';
+                                g.append('path')
+                                    .attr('d', d)
+                                    .attr('fill', '#ff0')
+                                    .attr('opacity', 0.45);
                             }
-                        }
-                        const influenceVals = Object.values(influenceByYear);
-                        const minTailInf = Math.min(...influenceVals);
-                        const maxTailInf = Math.max(...influenceVals);
-                        // For each year, calculate the tail radius (distance from center)
-                        const tailMin = Math.sqrt((startX - centerX) ** 2 + (startY - centerY) ** 2);
-                        const tailMax = Math.sqrt((endX - centerX) ** 2 + (endY - centerY) ** 2);
-                        let tailRadii;
-                        if (maxTailInf !== minTailInf) {
-                            tailRadii = yearsList.map((year, i) => {
-                                const val = influenceByYear[year];
-                                return tailMin + ((val - minTailInf) / (maxTailInf - minTailInf)) * (tailMax - tailMin);
-                            });
-                        } else {
-                            // All years unknown: interpolate from start to end
-                            tailRadii = yearsList.map((year, i) => {
-                                const t = i / (yearsList.length - 1);
-                                return tailMin + t * (tailMax - tailMin);
-                            });
-                        }
-                        // Interpolate angles from startAngle to endAngle
-                        const angles = yearsList.map((year, i) => {
-                            const t = i / (yearsList.length - 1);
-                            return startAngle + t * (endAngle - startAngle);
-                        });
-                        // Build tail path
-                        const minW = 0.8; // Thinner tip
-                        const maxW = artistRadius * 1.8; // Thicker end
-                        const pointsOuter = [];
-                        const pointsInner = [];
-                        for (let i = 0; i < angles.length; ++i) {
-                            const t = i / (angles.length - 1);
-                            const a = angles[i];
-                            // Use a curve that starts thin and gets thicker (quadratic or cubic)
-                            const widthCurve = t * t; // Quadratic curve for smooth thickening
-                            const w = minW + (maxW - minW) * widthCurve;
-                            const rOuter = tailRadii[i] + w / 2;
-                            const rInner = tailRadii[i] - w / 2;
-                            pointsOuter.push([
-                                centerX + Math.cos(a) * rOuter,
-                                centerY + Math.sin(a) * rOuter
-                            ]);
-                            pointsInner.push([
-                                centerX + Math.cos(a) * rInner,
-                                centerY + Math.sin(a) * rInner
-                            ]);
-                        }
-                        // Build smooth path using quadratic curves
-                        if (pointsOuter.length > 0 && !isNaN(pointsOuter[0][0]) && !isNaN(pointsOuter[0][1])) {
-                            let d = `M${pointsOuter[0][0]},${pointsOuter[0][1]}`;
-                            for (let i = 1; i < pointsOuter.length; ++i) {
-                                const prev = pointsOuter[i - 1];
-                                const curr = pointsOuter[i];
-                                if (!isNaN(prev[0]) && !isNaN(prev[1]) && !isNaN(curr[0]) && !isNaN(curr[1])) {
-                                    const midX = (prev[0] + curr[0]) / 2;
-                                    const midY = (prev[1] + curr[1]) / 2;
-                                    d += ` Q${prev[0]},${prev[1]} ${midX},${midY}`;
-                                }
-                            }
-                            // Complete the outer path to the last point
-                            if (pointsOuter.length > 1) {
-                                const lastPoint = pointsOuter[pointsOuter.length - 1];
-                                if (!isNaN(lastPoint[0]) && !isNaN(lastPoint[1])) {
-                                    d += ` L${lastPoint[0]},${lastPoint[1]}`;
-                                }
-                            }
-                            // Inner path (reverse direction)
-                            for (let i = pointsInner.length - 1; i >= 0; --i) {
-                                if (i === pointsInner.length - 1) {
-                                    const point = pointsInner[i];
-                                    if (!isNaN(point[0]) && !isNaN(point[1])) {
-                                        d += ` L${point[0]},${point[1]}`;
-                                    }
-                                } else {
-                                    const curr = pointsInner[i];
-                                    const next = pointsInner[i + 1];
-                                    if (!isNaN(curr[0]) && !isNaN(curr[1]) && !isNaN(next[0]) && !isNaN(next[1])) {
-                                        const midX = (curr[0] + next[0]) / 2;
-                                        const midY = (curr[1] + next[1]) / 2;
-                                        d += ` Q${next[0]},${next[1]} ${midX},${midY}`;
-                                    }
-                                }
-                            }
-                            d += 'Z';
-                            g.append('path')
-                                .attr('d', d)
-                                .attr('fill', '#ff0')
-                                .attr('opacity', 0.45);
                         }
                     }
-                }
-                // --- Draw tails for all visible artists when any artist is selected ---
-                if (selectedArtistId && Array.isArray(node.contributedTo) && node.contributedTo.length > 1 && selectedArtistId !== node.id) {
-                    // 1. Get all contributed years, sorted
-                    const yearsContributed = node.contributedTo
-                        .map(id => {
-                            const art = nodeById[id];
-                            return art ? Number(art.release_date) : null;
-                        })
-                        .filter(y => y !== null)
-                        .sort((a, b) => a - b);
-
-                    if (yearsContributed.length > 1) {
-                        const firstYear = String(yearsContributed[0]);
-                        const lastYear = String(yearsContributed[yearsContributed.length - 1]);
-                        // Start and end angles
-                        const startAngle = arcYears.includes(firstYear) ? angleScale(firstYear) - Math.PI / 2 : angle;
-                        // Use the actual angle to the jittered artist position
-                        const actualEndAngle = Math.atan2(y - centerY, x - centerX);
-                        let endAngle = actualEndAngle;
-                        if (endAngle <= startAngle) endAngle += 2 * Math.PI;
-
-                        // Start and end positions
-                        const startRadius = radius + 350;
-                        // Apply the same jitter to the starting position to avoid "going up" effect
-                        const startX = centerX + Math.cos(startAngle) * startRadius + jitterX;
-                        const startY = centerY + Math.sin(startAngle) * startRadius + jitterY;
-                        // Use the exact artist position for the tail end
-                        const endX = x;
-                        const endY = y;
-
-                        // --- Use node.influence (array: [{year, score}, ...]) ---
-                        const influenceArray = Array.isArray(node.influence) ? node.influence : [];
-                        // Filter out non-numeric years and handle "Unknown" influence
-                        const cleanInfluenceArray = [];
-                        let unknownInfluence = 0;
-                        influenceArray.forEach(inf => {
-                            if (inf.year === "Unknown" || isNaN(Number(inf.year))) {
-                                unknownInfluence += inf.score || 0;
+                    // --- Draw tails for all visible artists when any artist is selected ---
+                    if (selectedArtistId && Array.isArray(node.contributedTo) && node.contributedTo.length > 1 && selectedArtistId !== node.id) {
+                        
+                        // 1. Get all contributed years, sorted
+                        const yearsContributed = node.contributedTo
+                            .map(id => {
+                                const art = nodeById[id];
+                                return art ? Number(art.release_date) : null;
+                            })
+                            .filter(y => y !== null)
+                            .sort((a, b) => a - b);
+                        if (yearsContributed.length > 1) {
+                            const firstYear = String(yearsContributed[0]);
+                            // Start and end angles
+                            const startAngle = arcYears.includes(firstYear) ? angleScale(firstYear) - Math.PI / 2 : artistAngle;
+                            // Use the actual angle to the jittered artist position
+                            const actualEndAngle = Math.atan2(y - centerY, x - centerX);
+                            let endAngle = actualEndAngle;
+                            if (endAngle <= startAngle) endAngle += 2 * Math.PI;
+                            // Calculate 0.3 * artworkRatio position for all artists
+                            let startRadius;
+                            if (bandIdx === 0) {
+                                // For band 0, start at the artist's radius (same as end)
+                                startRadius = finalR;
                             } else {
-                                cleanInfluenceArray.push(inf);
+                                // For other bands, start at the baseline
+                                startRadius = minBand + rJitter;
                             }
-                        });
-                        // Distribute unknown influence proportionally across active years
-                        if (unknownInfluence > 0 && yearsContributed.length > 0) {
-                            const avgInfluencePerYear = unknownInfluence / yearsContributed.length;
-                            yearsContributed.forEach(year => {
-                                cleanInfluenceArray.push({
-                                    year: String(year),
-                                    score: avgInfluencePerYear
-                                });
+                            const startX = centerX + Math.cos(startAngle) * startRadius + 0;
+                            const startY = centerY + Math.sin(startAngle) * startRadius + 0;
+                            const endX = x; // actual artist position (blended)
+                            const endY = y;
+                            // --- Use node.influence (array: [{year, score}, ...]) ---
+                            const influenceArray = Array.isArray(node.influence) ? node.influence : [];
+                            // Filter out non-numeric years and handle "Unknown" influence
+                            const cleanInfluenceArray = [];
+                            let unknownInfluence = 0;
+                            influenceArray.forEach(inf => {
+                                if (inf.year === "Unknown" || isNaN(Number(inf.year))) {
+                                    unknownInfluence += inf.score || 0;
+                                } else {
+                                    cleanInfluenceArray.push(inf);
+                                }
                             });
-                        }
-                        // Build yearsList as sorted union of all artwork years and influence years
-                        const influenceYears = cleanInfluenceArray.map(inf => String(inf.year));
-                        const artworkYears = yearsContributed.map(y => String(y));
-                        const yearsSet = new Set([...artworkYears, ...influenceYears]);
-                        const yearsList = Array.from(yearsSet).sort((a, b) => Number(a) - Number(b));
-
-                        // Build cumulative influence by year with interpolation for unknown years
-                        let influenceByYear = {};
-                        let cumulative = 0;
-                        // First, build a map of year -> cumulative influence for known years
-                        const knownYears = yearsList.filter(year => 
-                            cleanInfluenceArray.some(inf => String(inf.year) === year)
-                        );
-                        let lastKnownIdx = -1;
-                        let lastKnownValue = 0;
-                        let nextKnownIdx = -1;
-                        let nextKnownValue = 0;
-                        // Precompute cumulative sums for known years
-                        let runningSum = 0;
-                        const cumulativeByKnownYear = {};
-                        yearsList.forEach(year => {
-                            const yearInfluences = cleanInfluenceArray.filter(inf => String(inf.year) === year);
-                            if (yearInfluences.length > 0) {
-                                const yearScore = yearInfluences.reduce((sum, inf) => sum + (inf.score || 0), 0);
-                                runningSum += yearScore;
-                                cumulativeByKnownYear[year] = runningSum;
+                            // Distribute unknown influence proportionally across active years
+                            if (unknownInfluence > 0 && yearsContributed.length > 0) {
+                                const avgInfluencePerYear = unknownInfluence / yearsContributed.length;
+                                yearsContributed.forEach(year => {
+                                    cleanInfluenceArray.push({
+                                        year: String(year),
+                                        score: avgInfluencePerYear
+                                    });
+                                });
                             }
-                        });
-                        // Now fill influenceByYear with interpolation for unknown years
-                        for (let i = 0; i < yearsList.length; ++i) {
-                            const year = yearsList[i];
-                            if (cumulativeByKnownYear[year] !== undefined) {
-                                cumulative = cumulativeByKnownYear[year];
-                                influenceByYear[year] = cumulative;
-                                lastKnownIdx = i;
-                                lastKnownValue = cumulative;
+                            // Build yearsList as sorted union of all artwork years and influence years
+                            const influenceYears = cleanInfluenceArray.map(inf => String(inf.year));
+                            const artworkYears = yearsContributed.map(y => String(y));
+                            const yearsSet = new Set([...artworkYears, ...influenceYears]);
+                            const yearsList = Array.from(yearsSet).sort((a, b) => Number(a) - Number(b));
+                            // Build cumulative influence by year with interpolation for unknown years
+                            let influenceByYear = {};
+                            let cumulative = 0;
+                            // First, build a map of year -> cumulative influence for known years
+                            const knownYears = yearsList.filter(year => 
+                                cleanInfluenceArray.some(inf => String(inf.year) === year)
+                            );
+                            let lastKnownIdx = -1;
+                            let lastKnownValue = 0;
+                            let nextKnownIdx = -1;
+                            let nextKnownValue = 0;
+                            // Precompute cumulative sums for known years
+                            let runningSum = 0;
+                            const cumulativeByKnownYear = {};
+                            yearsList.forEach(year => {
+                                const yearInfluences = cleanInfluenceArray.filter(inf => String(inf.year) === year);
+                                if (yearInfluences.length > 0) {
+                                    const yearScore = yearInfluences.reduce((sum, inf) => sum + (inf.score || 0), 0);
+                                    runningSum += yearScore;
+                                    cumulativeByKnownYear[year] = runningSum;
+                                }
+                            });
+                            // Now fill influenceByYear with interpolation for unknown years
+                            for (let i = 0; i < yearsList.length; ++i) {
+                                const year = yearsList[i];
+                                if (cumulativeByKnownYear[year] !== undefined) {
+                                    cumulative = cumulativeByKnownYear[year];
+                                    influenceByYear[year] = cumulative;
+                                    lastKnownIdx = i;
+                                    lastKnownValue = cumulative;
+                                } else {
+                                    // Find next known year
+                                    if (nextKnownIdx <= i) {
+                                        nextKnownIdx = -1;
+                                        for (let j = i + 1; j < yearsList.length; ++j) {
+                                            if (cumulativeByKnownYear[yearsList[j]] !== undefined) {
+                                                nextKnownIdx = j;
+                                                nextKnownValue = cumulativeByKnownYear[yearsList[j]];
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (lastKnownIdx === -1 && nextKnownIdx !== -1) {
+                                        // Before first known: flat at next known value
+                                        influenceByYear[year] = nextKnownValue;
+                                    } else if (lastKnownIdx !== -1 && nextKnownIdx === -1) {
+                                        // After last known: flat at last known value
+                                        influenceByYear[year] = lastKnownValue;
+                                    } else if (lastKnownIdx !== -1 && nextKnownIdx !== -1) {
+                                        // Interpolate between last known and next known
+                                        const t = (i - lastKnownIdx) / (nextKnownIdx - lastKnownIdx);
+                                        influenceByYear[year] = lastKnownValue + t * (nextKnownValue - lastKnownValue);
+                                    } else {
+                                        // No known values at all
+                                        influenceByYear[year] = 0;
+                                    }
+                                }
+                            }
+                            const influenceVals = Object.values(influenceByYear);
+                            const minTailInf = Math.min(...influenceVals);
+                            const maxTailInf = Math.max(...influenceVals);
+                            // For each year, calculate the tail radius (distance from center)
+                            const tailMin = Math.sqrt((startX - centerX) ** 2 + (startY - centerY) ** 2);
+                            const tailMax = Math.sqrt((endX - centerX) ** 2 + (endY - centerY) ** 2);
+                            let tailRadii;
+                            if (maxTailInf !== minTailInf) {
+                                tailRadii = yearsList.map((year, i) => {
+                                    const val = influenceByYear[year];
+                                    return tailMin + ((val - minTailInf) / (maxTailInf - minTailInf)) * (tailMax - tailMin);
+                                });
                             } else {
-                                // Find next known year
-                                if (nextKnownIdx <= i) {
-                                    nextKnownIdx = -1;
-                                    for (let j = i + 1; j < yearsList.length; ++j) {
-                                        if (cumulativeByKnownYear[yearsList[j]] !== undefined) {
-                                            nextKnownIdx = j;
-                                            nextKnownValue = cumulativeByKnownYear[yearsList[j]];
-                                            break;
+                                // All years unknown: interpolate from start to end
+                                tailRadii = yearsList.map((year, i) => {
+                                    const t = i / (yearsList.length - 1);
+                                    return tailMin + t * (tailMax - tailMin);
+                                });
+                            }
+                            // Interpolate angles from startAngle to endAngle
+                            const angles = yearsList.map((year, i) => {
+                                const t = i / (yearsList.length - 1);
+                                return startAngle + t * (endAngle - startAngle);
+                            });
+                            // Build tail path
+                            const minW = 0.8; // Thinner tip
+                            const maxW = artistRadius * 1.8; // Thicker end
+                            const pointsOuter = [];
+                            const pointsInner = [];
+                            for (let i = 0; i < angles.length; ++i) {
+                                const t = i / (angles.length - 1);
+                                const a = angles[i];
+                                // Use a curve that starts thin and gets thicker (quadratic or cubic)
+                                const widthCurve = t * t; // Quadratic curve for smooth thickening
+                                const w = minW + (maxW - minW) * widthCurve;
+                                const rOuter = tailRadii[i] + w / 2;
+                                const rInner = tailRadii[i] - w / 2;
+                                pointsOuter.push([
+                                    centerX + Math.cos(a) * rOuter,
+                                    centerY + Math.sin(a) * rOuter
+                                ]);
+                                pointsInner.push([
+                                    centerX + Math.cos(a) * rInner,
+                                    centerY + Math.sin(a) * rInner
+                                ]);
+                            }
+                            // Build smooth path using quadratic curves
+                            if (pointsOuter.length > 0 && !isNaN(pointsOuter[0][0]) && !isNaN(pointsOuter[0][1])) {
+                                let d = `M${pointsOuter[0][0]},${pointsOuter[0][1]}`;
+                                for (let i = 1; i < pointsOuter.length; ++i) {
+                                    const prev = pointsOuter[i - 1];
+                                    const curr = pointsOuter[i];
+                                    if (!isNaN(prev[0]) && !isNaN(prev[1]) && !isNaN(curr[0]) && !isNaN(curr[1])) {
+                                        const midX = (prev[0] + curr[0]) / 2;
+                                        const midY = (prev[1] + curr[1]) / 2;
+                                        d += ` Q${prev[0]},${prev[1]} ${midX},${midY}`;
+                                    }
+                                }
+                                // Complete the outer path to the last point
+                                if (pointsOuter.length > 1) {
+                                    const lastPoint = pointsOuter[pointsOuter.length - 1];
+                                    if (!isNaN(lastPoint[0]) && !isNaN(lastPoint[1])) {
+                                        d += ` L${lastPoint[0]},${lastPoint[1]}`;
+                                    }
+                                }
+                                // Inner path (reverse direction)
+                                for (let i = pointsInner.length - 1; i >= 0; --i) {
+                                    if (i === pointsInner.length - 1) {
+                                        const point = pointsInner[i];
+                                        if (!isNaN(point[0]) && !isNaN(point[1])) {
+                                            d += ` L${point[0]},${point[1]}`;
+                                        }
+                                    } else {
+                                        const curr = pointsInner[i];
+                                        const next = pointsInner[i + 1];
+                                        if (!isNaN(curr[0]) && !isNaN(curr[1]) && !isNaN(next[0]) && !isNaN(next[1])) {
+                                            const midX = (curr[0] + next[0]) / 2;
+                                            const midY = (curr[1] + next[1]) / 2;
+                                            d += ` Q${next[0]},${next[1]} ${midX},${midY}`;
                                         }
                                     }
                                 }
-                                if (lastKnownIdx === -1 && nextKnownIdx !== -1) {
-                                    // Before first known: flat at next known value
-                                    influenceByYear[year] = nextKnownValue;
-                                } else if (lastKnownIdx !== -1 && nextKnownIdx === -1) {
-                                    // After last known: flat at last known value
-                                    influenceByYear[year] = lastKnownValue;
-                                } else if (lastKnownIdx !== -1 && nextKnownIdx !== -1) {
-                                    // Interpolate between last known and next known
-                                    const t = (i - lastKnownIdx) / (nextKnownIdx - lastKnownIdx);
-                                    influenceByYear[year] = lastKnownValue + t * (nextKnownValue - lastKnownValue);
-                                } else {
-                                    // No known values at all
-                                    influenceByYear[year] = 0;
-                                }
+                                d += 'Z';
+                                g.append('path')
+                                    .attr('d', d)
+                                    .attr('fill', '#888')
+                                    .attr('opacity', 0.3);
                             }
-                        }
-                        const influenceVals = Object.values(influenceByYear);
-                        const minTailInf = Math.min(...influenceVals);
-                        const maxTailInf = Math.max(...influenceVals);
-                        // For each year, calculate the tail radius (distance from center)
-                        const tailMin = Math.sqrt((startX - centerX) ** 2 + (startY - centerY) ** 2);
-                        const tailMax = Math.sqrt((endX - centerX) ** 2 + (endY - centerY) ** 2);
-                        let tailRadii;
-                        if (maxTailInf !== minTailInf) {
-                            tailRadii = yearsList.map((year, i) => {
-                                const val = influenceByYear[year];
-                                return tailMin + ((val - minTailInf) / (maxTailInf - minTailInf)) * (tailMax - tailMin);
-                            });
-                        } else {
-                            // All years unknown: interpolate from start to end
-                            tailRadii = yearsList.map((year, i) => {
-                                const t = i / (yearsList.length - 1);
-                                return tailMin + t * (tailMax - tailMin);
-                            });
-                        }
-                        // Interpolate angles from startAngle to endAngle
-                        const angles = yearsList.map((year, i) => {
-                            const t = i / (yearsList.length - 1);
-                            return startAngle + t * (endAngle - startAngle);
-                        });
-                        // Build tail path
-                        const minW = 0.8; // Thinner tip
-                        const maxW = artistRadius * 1.8; // Thicker end
-                        const pointsOuter = [];
-                        const pointsInner = [];
-                        for (let i = 0; i < angles.length; ++i) {
-                            const t = i / (angles.length - 1);
-                            const a = angles[i];
-                            // Use a curve that starts thin and gets thicker (quadratic or cubic)
-                            const widthCurve = t * t; // Quadratic curve for smooth thickening
-                            const w = minW + (maxW - minW) * widthCurve;
-                            const rOuter = tailRadii[i] + w / 2;
-                            const rInner = tailRadii[i] - w / 2;
-                            pointsOuter.push([
-                                centerX + Math.cos(a) * rOuter,
-                                centerY + Math.sin(a) * rOuter
-                            ]);
-                            pointsInner.push([
-                                centerX + Math.cos(a) * rInner,
-                                centerY + Math.sin(a) * rInner
-                            ]);
-                        }
-                        // Build smooth path using quadratic curves
-                        if (pointsOuter.length > 0 && !isNaN(pointsOuter[0][0]) && !isNaN(pointsOuter[0][1])) {
-                            let d = `M${pointsOuter[0][0]},${pointsOuter[0][1]}`;
-                            for (let i = 1; i < pointsOuter.length; ++i) {
-                                const prev = pointsOuter[i - 1];
-                                const curr = pointsOuter[i];
-                                if (!isNaN(prev[0]) && !isNaN(prev[1]) && !isNaN(curr[0]) && !isNaN(curr[1])) {
-                                    const midX = (prev[0] + curr[0]) / 2;
-                                    const midY = (prev[1] + curr[1]) / 2;
-                                    d += ` Q${prev[0]},${prev[1]} ${midX},${midY}`;
-                                }
-                            }
-                            // Complete the outer path to the last point
-                            if (pointsOuter.length > 1) {
-                                const lastPoint = pointsOuter[pointsOuter.length - 1];
-                                if (!isNaN(lastPoint[0]) && !isNaN(lastPoint[1])) {
-                                    d += ` L${lastPoint[0]},${lastPoint[1]}`;
-                                }
-                            }
-                            // Inner path (reverse direction)
-                            for (let i = pointsInner.length - 1; i >= 0; --i) {
-                                if (i === pointsInner.length - 1) {
-                                    const point = pointsInner[i];
-                                    if (!isNaN(point[0]) && !isNaN(point[1])) {
-                                        d += ` L${point[0]},${point[1]}`;
-                                    }
-                                } else {
-                                    const curr = pointsInner[i];
-                                    const next = pointsInner[i + 1];
-                                    if (!isNaN(curr[0]) && !isNaN(curr[1]) && !isNaN(next[0]) && !isNaN(next[1])) {
-                                        const midX = (curr[0] + next[0]) / 2;
-                                        const midY = (curr[1] + next[1]) / 2;
-                                        d += ` Q${next[0]},${next[1]} ${midX},${midY}`;
-                                    }
-                                }
-                            }
-                            d += 'Z';
-                            g.append('path')
-                                .attr('d', d)
-                                .attr('fill', '#888')
-                                .attr('opacity', 0.3);
                         }
                     }
-                }
-                if (node._type === 'person') {
-                    g.append('circle')
-                        .attr('cx', x)
-                        .attr('cy', y)
-                        .attr('r', artistRadius)
-                        .attr('fill', fillColor)
-                        .attr('stroke', stroke)
-                        .attr('stroke-width', strokeWidth)
-                        .attr('opacity', opacity)
-                        .style('cursor', 'pointer')
-                        .on('mousemove', (event) => {
-                            tooltip
-                                .style('display', 'block')
-                                .html(
-                                    `<b>${node.name || node.id}</b><br/>Person<br/>Visible Artworks: ${numArtworks}<br/>Total Artworks: ${totalArtworks}` +
-                                    (Array.isArray(node.roles) && node.roles.length
-                                        ? `<br/>Roles: ${node.roles.join(', ')}`
-                                        : '')
-                                )                                    
-                                .style('left', (event.pageX + 12) + 'px')
-                                .style('top', (event.pageY - 24) + 'px');
-                        })
-                        .on('mouseleave', () => tooltip.style('display', 'none'))
-                        .on('click', (event) => {
-                            event.stopPropagation();
-                            setSelectedArtistId(selectedArtistId === node.id ? null : node.id);
-                        });
-                } else {
-                    g.append('rect')
-                        .attr('x', x - artistRadius)
-                        .attr('y', y - artistRadius)
-                        .attr('width', artistRadius * 2)
-                        .attr('height', artistRadius * 2)
-                        .attr('fill', fillColor)
-                        .attr('stroke', stroke)
-                        .attr('stroke-width', strokeWidth)
-                        .attr('opacity', opacity)
-                        .style('cursor', 'pointer')
-                        .on('mousemove', (event) => {
-                            tooltip
-                                .style('display', 'block')
-                                .html(
-                                    `<b>${node.name || node.id}</b><br/>Musical Group<br/>Visible Artworks: ${numArtworks}<br/>Total Artworks: ${totalArtworks}` +
-                                    (Array.isArray(node.roles) && node.roles.length
-                                        ? `<br/>Roles: ${node.roles.join(', ')}`
-                                        : '')
-                                ) 
-                                .style('left', (event.pageX + 12) + 'px')
-                                .style('top', (event.pageY - 24) + 'px');
-                        })
-                        .on('mouseleave', () => tooltip.style('display', 'none'))
-                        .on('click', (event) => {
-                            event.stopPropagation();
-                            setSelectedArtistId(selectedArtistId === node.id ? null : node.id);
-                        });
-                }
+                    // --- Draw artist node (copied from previous logic) ---
+                    if (node._type === 'person') {
+                        const isContributorToInfluence = selectedArtistId && contributorIds.has(node.id);
+                        const influenceColor = isContributorToInfluence ? '#0ff' : fillColor;
+                        g.append('circle')
+                            .attr('cx', x)
+                            .attr('cy', y)
+                            .attr('r', artistRadius)
+                            .attr('fill', influenceColor)
+                            .attr('stroke', stroke)
+                            .attr('stroke-width', strokeWidth)
+                            .attr('opacity', opacity)
+                            .style('cursor', 'pointer')
+                            .on('mousemove', (event) => {
+                                const isSailor = node.name && node.name.toLowerCase().includes('sailor');
+                               
+                                tooltip
+                                    .style('display', 'block')
+                                    .html(
+                                        `<b>${node.name || node.id}</b><br/>Person<br/>Visible Artworks: ${numArtworks}<br/>Total Artworks: ${totalArtworksAll}` +
+                                        (Array.isArray(node.roles) && node.roles.length
+                                            ? `<br/>Roles: ${node.roles.join(', ')}`
+                                            : '') 
+                                        
+                                    )                                    
+                                    .style('left', (event.pageX + 12) + 'px')
+                                    .style('top', (event.pageY - 24) + 'px');
+                            })
+                            .on('mouseleave', () => tooltip.style('display', 'none'))
+                            .on('click', (event) => {
+                                event.stopPropagation();
+                                // Always set the selected artist for normal behavior
+                                setSelectedArtistId(selectedArtistId === node.id ? null : node.id);
+                                // If this is Sailor, also open lightbox
+                                if (node.name && node.name.toLowerCase().includes('sailor')) {
+                                    setIsLightboxOpen(true);
+                                    setLightboxUrl('https://bucolic-pastelito-a132e1.netlify.app/');
+                                }
+                            });
+                    } else {
+                        g.append('rect')
+                            .attr('x', x - artistRadius)
+                            .attr('y', y - artistRadius)
+                            .attr('width', artistRadius * 2)
+                            .attr('height', artistRadius * 2)
+                            .attr('fill', fillColor)
+                            .attr('stroke', stroke)
+                            .attr('stroke-width', strokeWidth)
+                            .attr('opacity', opacity)
+                            .style('cursor', 'pointer')
+                            .on('mousemove', (event) => {
+                                const isSailor = node.name && node.name.toLowerCase().includes('sailor');
+                                const sailorNote = isSailor ? '<br/><i style="color: #ffd700;">Click to open website panel</i>' : '';
+                                tooltip
+                                    .style('display', 'block')
+                                    .html(
+                                        `<b>${node.name || node.id}</b><br/>Musical Group<br/>Visible Artworks: ${numArtworks}<br/>Total Artworks: ${totalArtworksAll}` +
+                                        (Array.isArray(node.roles) && node.roles.length
+                                            ? `<br/>Roles: ${node.roles.join(', ')}`
+                                            : '') +
+                                        sailorNote
+                                    ) 
+                                    .style('left', (event.pageX + 12) + 'px')
+                                    .style('top', (event.pageY - 24) + 'px');
+                            })
+                            .on('mouseleave', () => tooltip.style('display', 'none'))
+                            .on('click', (event) => {
+                                event.stopPropagation();
+                                // Always set the selected artist for normal behavior
+                                setSelectedArtistId(selectedArtistId === node.id ? null : node.id);
+                                // If this is Sailor, also open lightbox
+                                if (node.name && node.name.toLowerCase().includes('sailor')) {
+                                    setIsLightboxOpen(true);
+                                    setLightboxUrl('https://bucolic-pastelito-a132e1.netlify.app/');
+                                }
+                            });
+                    }
+                });
             });
         }
         // --- Update contribTypes to include record label links ---
         const contribTypes = [
-            { key: "performedBy", color: "#fa0", width: 0.5, dash: "" },
-            { key: "composedBy", color: "#f0f", width: 0.5, dash: "4,2" },
-            { key: "producedBy", color: "#0ff", width: 0.5, dash: "2,2" },
-            { key: "lyricsBy", color: "#0f0", width: 0.5, dash: "6,2" },
-            { key: "recordedBy", color: "#08f", width: 0.5, dash: "1,2" },
-            { key: "distributedBy", color: "#f80", width: 0.5, dash: "3,2" }
+            { key: "performedBy", color: "#FFB547", width: 0.5, dash: "" },
+            { key: "composedBy", color: "#DF41FF", width: 0.5, dash: "4,2" },
+            { key: "producedBy", color: "#50DAF1", width: 0.5, dash: "2,2" },
+            { key: "lyricsBy", color: "#FF5053", width: 0.5, dash: "6,2" },
+            { key: "recordedBy", color: "#437BFF", width: 0.5, dash: "1,2" },
+            { key: "distributedBy", color: "#D71573", width: 0.5, dash: "3,2" }
         ];
 
         // --- When drawing links for selected artwork, include record label links ---
@@ -1452,36 +1640,96 @@ function Overview({ data }) {
                     if (artistPositions[personId]) {
                         const from = artworkPositions[selectedArtworkId];
                         const to = artistPositions[personId];
-                        // Create a more balanced control point
                         const dx = to.x - from.x;
                         const dy = to.y - from.y;
                         const distance = Math.sqrt(dx * dx + dy * dy);
                         const controlDistance = Math.min(distance * 0.3, 100); // 30% of distance, max 100px
-                        // Curve direction based on relative positions
-                
-                        const curveDirection = from.x > to.x ? -1 : 1; // If artwork is right of artist, bend left
+                        const curveDirection = from.x > to.x ? -1 : 1;
                         const midX = (from.x + to.x) / 2;
                         const midY = (from.y + to.y) / 2 - controlDistance * curveDirection;
                         const contributor = artistNodes.find(n => n.id === personId) || visibleLabels.find(l => l.id === personId);
                         const { color, width, dash } = roles[0];
+                        // Dimming logic: if hovering over an artwork, only highlight links connected to it
+
+                        let opacity = 0.85;
+                        if (highlightSet) {
+                            // Only highlight if either endpoint is in highlightSet (hovering below timeline)
+                            if (!highlightSet.has(String(selectedArtworkId)) && !highlightSet.has(String(personId))) {
+                                opacity = 0.1;
+                            } else {
+                                opacity = 1.0;
+                            }
+                        }
                         g.append('path')
                             .attr('d', `M${from.x},${from.y} Q${midX},${midY} ${to.x},${to.y}`)
                             .attr('stroke', color)
                             .attr('stroke-width', width)
                             .attr('fill', 'none')
                             // .attr('stroke-dasharray', dash)
-                            .attr('opacity', 0.85)
+                            .attr('opacity', opacity)
                             .style('cursor', 'pointer')
                             .on('mousemove', (event) => {
                                 tooltip
                                     .style('display', 'block')
                                     .html(
-                                        `<b>${contributor?.name || personId}</b><br/>Role(s): ${roles.map(r => r.key.replace('By', '')).join(', ')}`
+                                        `<b>${contributor?.name || personId}</b><br/>Role(s): ${roles.map(r => r.key.replace('By', '')).join(', ')} `
                                     )
                                     .style('left', (event.pageX + 12) + 'px')
                                     .style('top', (event.pageY - 24) + 'px');
                             })
                             .on('mouseleave', () => tooltip.style('display', 'none'));
+                    }
+                });
+                // Record label links
+                ['recordedBy', 'distributedBy'].forEach(labelKey => {
+                    if (Array.isArray(artworkNode[labelKey])) {
+                        artworkNode[labelKey].forEach(labelId => {
+                            if (artistPositions[labelId]) {
+                                const from = artworkPositions[selectedArtworkId];
+                                const to = artistPositions[labelId];
+                                const midX = (from.x + to.x) / 2;
+                                const midY = (from.y + to.y) / 2 - 80;
+                                let color;
+                                if (Array.isArray(artworkNode.recordedBy) && Array.isArray(artworkNode.distributedBy) &&
+                                    artworkNode.recordedBy.includes(labelId) && artworkNode.distributedBy.includes(labelId)) {
+                                    color = "#C369E9"; // both roles
+                                } else if (labelKey === 'recordedBy') {
+                                    color = "#437BFF";
+                                } else if (labelKey === 'distributedBy') {
+                                    color = "#D71573";
+                                }
+                                let dash = labelKey === 'recordedBy' ? "1,2" : "3,2";
+                                const labelNode = nodeById[labelId];
+                                // Dimming logic: if hovering over an artwork, only highlight links connected to it
+                                let opacity = 0.85;
+                                if (highlightSet) {
+                                    // Only highlight if either endpoint is in highlightSet (hovering below timeline)
+                                    if (!highlightSet.has(String(selectedArtworkId)) && !highlightSet.has(String(labelId))) {
+                                        opacity = 0.1;
+                                    } else {
+                                        opacity = 1.0;
+                                    }
+                                }
+                                g.append('path')
+                                    .attr('d', `M${from.x},${from.y} Q${midX},${midY} ${to.x},${to.y}`)
+                                    .attr('stroke', color)
+                                    .attr('stroke-width', 0.5)
+                                    .attr('fill', 'none')
+                                    // .attr('stroke-dasharray', dash)
+                                    .attr('opacity', opacity)
+                                    .style('cursor', 'pointer')
+                                    .on('mousemove', (event) => {
+                                        tooltip
+                                            .style('display', 'block')
+                                            .html(
+                                                `<b>${labelNode?.name || labelId}</b><br/>Role(s): ${labelKey.replace('By', '')}`
+                                            )
+                                            .style('left', (event.pageX + 12) + 'px')
+                                            .style('top', (event.pageY - 24) + 'px');
+                                    })
+                                    .on('mouseleave', () => tooltip.style('display', 'none'));
+                            }
+                        });
                     }
                 });
             }
@@ -1514,13 +1762,22 @@ function Overview({ data }) {
                                     const midX = (from.x + to.x) / 2;
                                     const midY = (from.y + to.y) / 2 - 80;
                                     const { color, width, dash } = roles[0];
+                                    // Dimming logic: if hovering over an artwork, only highlight links connected to it
+                                    let opacity = 0.6;
+                                    if (hoveredArtworkId) {
+                                        if (artworkId === hoveredArtworkId || contribId === hoveredArtworkId) {
+                                            opacity = 1.0;
+                                        } else {
+                                            opacity = 0.1;
+                                        }
+                                    }
                                     g.append('path')
                                         .attr('d', `M${from.x},${from.y} Q${midX},${midY} ${to.x},${to.y}`)
                                         .attr('stroke', color)
                                         .attr('stroke-width', width)
                                         .attr('fill', 'none')
                                         // .attr('stroke-dasharray', dash)
-                                        .attr('opacity', 0.6)
+                                        .attr('opacity', opacity)
                                         .style('cursor', 'pointer')
                                         .on('mousemove', (event) => {
                                             tooltip
@@ -1534,17 +1791,7 @@ function Overview({ data }) {
                                         .on('mouseleave', () => tooltip.style('display', 'none'));
                                 }
                             });
-                            
-                            // Highlight influenced artworks 
-                            // if (Array.isArray(artworkNode.influenced)) {
-                            //     artworkNode.influenced.forEach(influencedId => {
-                            //         if (artworkPositions[influencedId]) {
-                            //             // The influenced artwork will be highlighted by the existing artwork drawing logic
-                            //             // when it's in the filtered nodes
-                            //         }
-                            //     });
-                            // }
-                            
+                            // Record label links
                             ['recordedBy', 'distributedBy'].forEach(labelKey => {
                                 if (Array.isArray(artworkNode[labelKey])) {
                                     artworkNode[labelKey].forEach(labelId => {
@@ -1553,32 +1800,42 @@ function Overview({ data }) {
                                             const to = artistPositions[labelId];
                                             const midX = (from.x + to.x) / 2;
                                             const midY = (from.y + to.y) / 2 - 80;
-                                            let color = labelKey === 'recordedBy' ? "#08f" : "#f80";
+                                            let color;
+                                            if (Array.isArray(artworkNode.recordedBy) && Array.isArray(artworkNode.distributedBy) &&
+                                                artworkNode.recordedBy.includes(labelId) && artworkNode.distributedBy.includes(labelId)) {
+                                                color = "#C369E9"; // both roles
+                                            } else if (labelKey === 'recordedBy') {
+                                                color = "#437BFF";
+                                            } else if (labelKey === 'distributedBy') {
+                                                color = "#D71573";
+                                            }
+                                            // let color = labelKey === 'recordedBy' ? "#08f" : "#f80";
                                             let dash = labelKey === 'recordedBy' ? "1,2" : "3,2";
                                             const labelNode = nodeById[labelId];
-                                            
-                                            // Get all roles for this label
-                                            const allRoles = [];
-                                            if (Array.isArray(artworkNode.recordedBy) && artworkNode.recordedBy.includes(labelId)) {
-                                                allRoles.push('recorded');
+                                            // Dimming logic: if hovering over an artwork, only highlight links connected to it
+
+                                            let opacity = 0.85;
+                                            if (highlightSet) {
+                                                // Only highlight if either endpoint is in highlightSet (hovering below timeline)
+                                                if (!highlightSet.has(String(selectedArtworkId)) && !highlightSet.has(String(labelId))) {
+                                                    opacity = 0.1;
+                                                } else {
+                                                    opacity = 1.0;
+                                                }
                                             }
-                                            if (Array.isArray(artworkNode.distributedBy) && artworkNode.distributedBy.includes(labelId)) {
-                                                allRoles.push('distributed');
-                                            }
-                                            
                                             g.append('path')
                                                 .attr('d', `M${from.x},${from.y} Q${midX},${midY} ${to.x},${to.y}`)
                                                 .attr('stroke', color)
                                                 .attr('stroke-width', 0.5)
                                                 .attr('fill', 'none')
                                                 // .attr('stroke-dasharray', dash)
-                                                .attr('opacity', 0.85)
+                                                .attr('opacity', opacity)
                                                 .style('cursor', 'pointer')
                                                 .on('mousemove', (event) => {
                                                     tooltip
                                                         .style('display', 'block')
                                                         .html(
-                                                            `<b>${labelNode?.name || labelId}</b><br/>Role(s): ${allRoles.join(', ')}`
+                                                            `<b>${labelNode?.name || labelId}</b><br/>Role(s): ${labelKey.replace('By', '')}`
                                                         )
                                                         .style('left', (event.pageX + 12) + 'px')
                                                         .style('top', (event.pageY - 24) + 'px');
@@ -1594,198 +1851,248 @@ function Overview({ data }) {
             }
         }
 
-        // --- Draw candlestick base (holder) at the end so it's always visible ---
-        const baseY = centerY + radius + 60;
-        g.append('ellipse')
-            .attr('cx', centerX)
-            .attr('cy', baseY + 32)
-            .attr('rx', 90)
-            .attr('ry', 18)
-            .attr('fill', '#bfa76f')
-            .attr('stroke', '#fff')
-            .attr('stroke-width', 2)
-            .attr('opacity', 0.97);
-
-        g.append('rect')
-            .attr('x', centerX - 18)
-            .attr('y', baseY - 80)
-            .attr('width', 36)
-            .attr('height', 80)
-            .attr('rx', 12)
-            .attr('fill', '#bfa76f')
-            .attr('stroke', '#fff')
-            .attr('stroke-width', 2)
-            .attr('opacity', 0.97);
-
-        g.append('ellipse')
-            .attr('cx', centerX)
-            .attr('cy', baseY)
-            .attr('rx', 70)
-            .attr('ry', 16)
-            .attr('fill', '#bfa76f')
-            .attr('stroke', '#fff')
-            .attr('stroke-width', 1.5)
-            .attr('opacity', 0.93);
 
         // --- Draw influenced artworks on the timeline when an artist is selected ---
         if (selectedArtistId) {
             const selectedArtist = [...people, ...groups].find(n => n.id === selectedArtistId);
             if (selectedArtist && Array.isArray(selectedArtist.contributedTo)) {
-                // Collect all influenced artworks
+                // Collect all influenced and influencing artworks
+                const contributedArtworks = selectedArtist.contributedTo.map(id => nodeById[id]).filter(Boolean);
                 const influencedSet = new Set();
-                selectedArtist.contributedTo.forEach(artworkId => {
-                    const artworkNode = nodeById[artworkId];
-                    if (artworkNode && Array.isArray(artworkNode.influenced)) {
-                        artworkNode.influenced.forEach(influencedId => {
-                            if (typeof influencedId === 'string') {
-                                influencedSet.add(influencedId);
-                            } else if (typeof influencedId === 'number') {
-                                influencedSet.add(String(influencedId));
-                            }
-                        });
+                const influencingSet = new Set();
+                contributedArtworks.forEach(artwork => {
+                    if (Array.isArray(artwork.influenced)) {
+                        artwork.influenced.forEach(id => influencedSet.add(String(id)));
+                    }
+                    if (Array.isArray(artwork.influencedBy)) {
+                        artwork.influencedBy.forEach(id => influencingSet.add(String(id)));
                     }
                 });
+                contributedArtworks.forEach(artwork => {
+                    influencedSet.delete(String(artwork.id));
+                    influencingSet.delete(String(artwork.id));
+                });
+                const influencedArtworks = Array.from(influencedSet).map(id => nodeById[id]).filter(Boolean);
+                const influencingArtworks = Array.from(influencingSet).map(id => nodeById[id]).filter(Boolean);
 
-                if (influencedSet.size > 0) {
-                    // Find influenced artworks in the full dataset
-                    const influencedArtworksString = data.nodes.filter(n => 
-                        influencedSet.has(String(n.id)) && 
-                        (n["Node Type"] && (n["Node Type"].toLowerCase() === 'song' || n["Node Type"].toLowerCase() === 'album'))
-                    );
-                    const influencedArtworksNumber = data.nodes.filter(n => 
-                        influencedSet.has(Number(n.id)) && 
-                        (n["Node Type"] && (n["Node Type"].toLowerCase() === 'song' || n["Node Type"].toLowerCase() === 'album'))
-                    );
-                    
-                    const finalInfluencedArtworks = influencedArtworksString.length > 0 ? influencedArtworksString : 
-                                                   influencedArtworksNumber.length > 0 ? influencedArtworksNumber : [];
+                // Collect all contributors to influencing/influenced artworks
 
-                    // Remove self-influenced artworks (those that are also in contributed list)
-                    const contributedSet = new Set(selectedArtist.contributedTo);
-                    const filteredInfluencedArtworks = finalInfluencedArtworks.filter(artwork => 
-                        !contributedSet.has(artwork.id)
-                    );
-
-                    if (filteredInfluencedArtworks.length > 0) {
-                        // Draw influenced artworks on the timeline, stacked at the bottom
-                        arcYears.forEach(year => {
-                            const yearInfluencedArtworks = filteredInfluencedArtworks.filter(d => String(d.release_date) === String(year));
-                            if (yearInfluencedArtworks.length > 0) {
-                                // Debug: Log the influenced artworks for this year
-                                console.log(`Year ${year}: ${yearInfluencedArtworks.length} influenced artworks`);
-                                yearInfluencedArtworks.forEach((artwork, idx) => {
-                                    console.log(`  ${idx}: ${artwork.name} (${artwork.genre}) - ${artwork["Node Type"]}`);
-                                });
-                                
-                                const angle = angleScale(year) - Math.PI / 2;
-                                const arcBaseX = Math.cos(angle) * radius;
-                                const arcBaseY = Math.sin(angle) * radius;
-                                const tanX = -Math.sin(angle);
-                                const tanY = Math.cos(angle);
-                                const groupBaseX = centerX + arcBaseX + Math.cos(angle) * groupOffset;
-                                const groupBaseY = centerY + arcBaseY + Math.sin(angle) * groupOffset;
-
-                                const totalBarCount = genres.length;
-                                const barWidthPx = barWidth + barGap;
-                                const barSpan = (totalBarCount - 1) * barWidthPx;
-
-                                // Use the same nested loop structure as contributed artworks
-                                let barIdx = 0;
-                                GENRE_GROUPS.forEach((group, groupIdx) => {
-                                    group.genres.forEach((genre, genreIdx) => {
-                                        const offset = (barIdx - (genres.length - 1) / 2) * (barWidth + barGap);
-                                        const x = groupBaseX + tanX * offset;
-                                        const y = groupBaseY + tanY * offset;
-                                        
-                                        // Get influenced artworks for this genre and year
-                                        const genreInfluencedArtworks = yearInfluencedArtworks.filter(d => d.genre === genre);
-                                        
-                                        if (genreInfluencedArtworks.length > 0) {
-                                            // Sort songs first, then albums
-                                            const sortedGenreArtworks = genreInfluencedArtworks.sort((a, b) => {
-                                                const aIsAlbum = a["Node Type"].toLowerCase() === 'album';
-                                                const bIsAlbum = b["Node Type"].toLowerCase() === 'album';
-                                                return aIsAlbum - bIsAlbum;
-                                            });
-                                            
-                                            sortedGenreArtworks.forEach((artwork, artworkIdx) => {
-                                                const isNotable = artwork.notable;
-                                                const isAlbum = artwork["Node Type"].toLowerCase() === 'album';
-                                                
-                                                // Use same base sizes as contributed artworks
-                                                const baseRadius = isAlbum ? 1.5 : 1;
-                                                
-                                                // Apply same scaling factors as contributed artworks
-                                                const filterActivePart =
-                                                    (selectedGenres.size < 10 && selectedGenres.size > 0) ||
-                                                    (influenceGenres.size > 0 && selectedGenres.size < 10) ||
-                                                    (influenceGenres.size < 3 && influenceGenres.size > 0) ||
-                                                    selectedLabelId !== null;
-                                                const personFilterActive = selectedArtistId !== null;
-                                                const dotRadius = personFilterActive ? baseRadius * 5 : filterActivePart ? baseRadius * 3 : baseRadius;
-                                                
-                                                const fillColor = genreLookup[genre]?.color || "#fff";
-                                                const strokeColor = genreLookup[genre]?.color || "#fff";
-                                                
-                                                // Position at the bottom of the timeline (first at top, then stack inward)
-                                                const barAngle = Math.atan2(y - centerY, x - centerX);
-                                                const r = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2) - 10 - (artworkIdx * 8); // Stack inward toward center
-                                                const dotX = centerX + Math.cos(barAngle) * r;
-                                                const dotY = centerY + Math.sin(barAngle) * r;
-
-                                                // Store position for potential links
-                                                artworkPositions[artwork.id] = { x: dotX, y: dotY };
-
-                                                // Influenced artwork dot
-                                                g.append('circle')
-                                                    .attr('cx', dotX)
-                                                    .attr('cy', dotY)
-                                                    .attr('r', dotRadius)
-                                                    .attr('fill', fillColor)
-                                                    .attr('stroke', strokeColor)
-                                                    .attr('stroke-width', 1.5)
-                                                    .style('cursor', 'pointer')
-                                                    .on('mousemove', (event) => {
-                                                        tooltip
-                                                            .style('display', 'block')
-                                                            .html(
-                                                                `<b style="color:${strokeColor}">Influenced by ${selectedArtist.name || selectedArtist.id}</b><br/>
-                                                                ${genre}<br/>
-                                                                ${artwork["Node Type"]}: ${artwork.name || ""}`
-                                                            )
-                                                            .style('left', (event.pageX + 12) + 'px')
-                                                            .style('top', (event.pageY - 24) + 'px');
-                                                    })
-                                                    .on('mouseleave', () => tooltip.style('display', 'none'))
-                                                    .on('click', (event) => {
-                                                        event.stopPropagation();
-                                                        setSelectedArtworkId(artwork.id === selectedArtworkId ? null : artwork.id);
-                                                    });
-
-                                                // Center circle for all influenced artworks
-                                                const centerColor = isNotable ? '#fff' : '#000';
-                                                g.append('circle')
-                                                    .attr('cx', dotX)
-                                                    .attr('cy', dotY)
-                                                    .attr('r', dotRadius * 0.45)
-                                                    .attr('fill', centerColor)
-                                                    .style('pointer-events', 'none');
-                                            });
-                                        }
-                                        
-                                        barIdx++;
-                                    });
-                                });
-                            }
-                        });
+                if (selectedArtistId) {
+                [...influencedArtworks, ...influencingArtworks].forEach(artwork => {
+                    ['performedBy', 'composedBy', 'producedBy', 'lyricsBy'].forEach(role => {
+                    if (Array.isArray(artwork[role])) {
+                        artwork[role].forEach(id => contributorIds.add(id));
                     }
+                    });
+                });
                 }
+                // --- Dimming/highlighting logic for hover ---
+                let highlightSet = new Set();
+                if (hoveredArtworkId && nodeById[hoveredArtworkId]) {
+                    const hovered = nodeById[hoveredArtworkId];
+                    if (Array.isArray(hovered.influenced)) hovered.influenced.forEach(id => highlightSet.add(String(id)));
+                    if (Array.isArray(hovered.influencedBy)) hovered.influencedBy.forEach(id => highlightSet.add(String(id)));
+                    highlightSet.add(String(hoveredArtworkId));
+                }
+
+                // --- Dot size logic (copied from above-the-timeline) ---
+                const personFilterActive = selectedArtistId !== null;
+                const filterActivePart =
+                    (selectedGenres.size < 10 && selectedGenres.size > 0) ||
+                    (influenceGenres.size > 0 && selectedGenres.size < 10) ||
+                    (influenceGenres.size < 3 && influenceGenres.size > 0) ||
+                    selectedLabelId !== null;
+                    const genreGlobalIndex = {};
+                    genres.forEach((g, i) => { genreGlobalIndex[g] = i; });
+                // --- Draw combined influenced/influencing artworks below the timeline ---
+                arcYears.forEach(year => {
+                    GENRE_GROUPS.forEach((group, groupIdx) => {
+                        group.genres.forEach((genre, genreIdx) => {
+                            // Get all unique artworks for this year/genre
+                            const yearInfluencing = influencingArtworks.filter(d => String(d.release_date) === String(year) && d.genre === genre);
+                            const yearInfluenced = influencedArtworks.filter(d => String(d.release_date) === String(year) && d.genre === genre);
+                            
+                            // Create a map to track unique artworks and their roles
+                            const artworkMap = new Map();
+                            
+                            // Add influencing artworks
+                            yearInfluencing.forEach(artwork => {
+                                if (!artworkMap.has(artwork.id)) {
+                                    artworkMap.set(artwork.id, { artwork, isInfluencing: true, isInfluenced: false });
+                                } else {
+                                    artworkMap.get(artwork.id).isInfluencing = true;
+                                }
+                            });
+                            
+                            // Add influenced artworks
+                            yearInfluenced.forEach(artwork => {
+                                if (!artworkMap.has(artwork.id)) {
+                                    artworkMap.set(artwork.id, { artwork, isInfluencing: false, isInfluenced: true });
+                                } else {
+                                    artworkMap.get(artwork.id).isInfluenced = true;
+                                }
+                            });
+
+                            // Positioning logic
+                            const angle = angleScale(year) - Math.PI / 2;
+                            const arcBaseX = Math.cos(angle) * radius;
+                            const arcBaseY = Math.sin(angle) * radius;
+                            const tanX = -Math.sin(angle);
+                            const tanY = Math.cos(angle);
+                            const groupBaseX = centerX + arcBaseX + Math.cos(angle) * groupOffset;
+                            const groupBaseY = centerY + arcBaseY + Math.sin(angle) * groupOffset;
+                            const globalIdx = genreGlobalIndex[genre];
+
+                            const offset = (globalIdx - (genres.length - 1) / 2) * (barWidth + barGap)*2;
+                            const x = groupBaseX + tanX * offset;
+                            const y = groupBaseY + tanY * offset;
+                            let stackIdx = 0;
+                            
+                            // Draw each unique artwork once
+                            artworkMap.forEach(({ artwork, isInfluencing, isInfluenced }) => {
+                                const isAlbum = artwork["Node Type"].toLowerCase() === 'album';
+                                const isNotable = artwork.notable;
+                                const baseRadius = isAlbum ? 1.0 : 0.7;
+                                const dotRadius = personFilterActive ? baseRadius * 4 : filterActivePart ? baseRadius * 3 : baseRadius;
+                                const barAngle = Math.atan2(y - centerY, x - centerX);
+                                const r = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2) - 10 - (stackIdx * 8);
+                                const dotX = centerX + Math.cos(barAngle) * r;
+                                const dotY = centerY + Math.sin(barAngle) * r;
+                                
+                                let opacity = 1.0;
+                                if (highlightSet.size > 0 && !highlightSet.has(String(artwork.id))) opacity = 0.1;
+                                
+                                // Determine border style based on hover state and artwork roles
+                                let strokeColor = '#fff';
+                                let strokeWidth = 1.2;
+                                let strokeDasharray = 'none';
+                                
+                                if (isInfluencing && isInfluenced) {
+                                    // Both roles - use dashed border by default
+                                    strokeDasharray = '3,2';
+                                    if (hoveredArtworkId && nodeById[hoveredArtworkId]) {
+                                        const hovered = nodeById[hoveredArtworkId];
+                                        // Check if this artwork influenced the hovered one
+                                        if (Array.isArray(hovered.influencedBy) && hovered.influencedBy.includes(artwork.id)) {
+                                            strokeColor = '#fff'; // White border when influencing hovered
+                                            strokeDasharray = 'none'; // Solid border when directly related
+                                        } else if (Array.isArray(artwork.influencedBy) && artwork.influencedBy.includes(hoveredArtworkId)) {
+                                            strokeColor = '#000'; // Black border when influenced by hovered
+                                            strokeDasharray = 'none'; // Solid border when directly related
+                                        } else {
+                                            strokeColor = '#888'; // Gray border when no direct relationship
+                                            strokeDasharray = '3,2'; // Keep dashed when no direct relationship
+                                        }
+                                    } else {
+                                        strokeColor = '#888'; // Default gray for both roles
+                                        strokeDasharray = '3,2'; // Default dashed for both roles
+                                    }
+                                } else if (isInfluencing) {
+                                    strokeColor = '#fff'; // White border for influencing only
+                                } else if (isInfluenced) {
+                                    strokeColor = '#000'; // Black border for influenced only
+                                }
+                                
+                                // Main dot
+                                g.append('circle')
+                                    .attr('cx', dotX)
+                                    .attr('cy', dotY)
+                                    .attr('r', dotRadius)
+                                    .attr('fill', genreLookup[genre]?.color || '#fff')
+                                    .attr('stroke', strokeColor)
+                                    .attr('stroke-width', strokeWidth)
+                                    .attr('stroke-dasharray', strokeDasharray)
+                                    .attr('opacity', opacity)
+                                    .style('cursor', 'pointer')
+                                    .on('mousemove', (event) => {
+                                        setHoveredArtworkId(artwork.id);
+                                        tooltip
+                                            .style('display', 'block')
+                                            .html(
+                                                `<b style="color:${genreLookup[genre]?.color || "#fff"}">${genre}</b><br/>
+                                                ${isNotable ? (isAlbum ? "Notable Album" : "Notable Song") : (isAlbum ? "Album" : "Song")}: ${artwork.name || ""}<br/>
+                                                ${isInfluencing && isInfluenced ? 'Influencing & Influenced' : isInfluencing ? 'Influencing' : 'Influenced'}`
+                                            )
+                                            .style('left', (event.pageX + 12) + 'px')
+                                            .style('top', (event.pageY - 24) + 'px');
+                                    })
+                                    .on('mouseleave', () => {
+                                        setHoveredArtworkId(null);
+                                        tooltip.style('display', 'none');
+                                    })
+                                    .on('click', (event) => {
+                                        event.stopPropagation();
+                                        setSelectedArtworkId(artwork.id === selectedArtworkId ? null : artwork.id);
+                                    });
+                                
+                                // Inner circle
+                                g.append('circle')
+                                    .attr('cx', dotX)
+                                    .attr('cy', dotY)
+                                    .attr('r', dotRadius * 0.45)
+                                    .attr('fill', isNotable ? '#fff' : '#000')
+                                    .attr('opacity', opacity)
+                                    .style('pointer-events', 'none');
+                                
+                                stackIdx++;
+                            });
+                        });
+                    });
+                });
             }
         }
-    }, [filteredNodes, years, genres, artistNodes, visibleLabels, selectedGenres, visibleSongAlbumIds, nodeById, selectedArtistId, selectedLabelId, selectedArtworkId, influenceGenres, arcYears, angleScale, artistTailData, svgHeight]);
+        // --- Draw influence edges line chart when influence filter is on ---
+        if (influenceGenres.size > 0 && influenceGenres.size < genres.length) {
+            // Count influence edges by year (where influencedBy genre is in filtered genres)
+            const influenceCountsByYear = {};
+            arcYears.forEach(year => { influenceCountsByYear[year] = 0; });
+            filteredNodes.forEach(node => {
+                if (Array.isArray(node.influencedBy)) {
+                    node.influencedBy.forEach(infId => {
+                        const infNode = nodeById[infId];
+                        if (infNode && influenceGenres.has(infNode.genre) && arcYears.includes(String(node.release_date))) {
+                            influenceCountsByYear[String(node.release_date)]++;
+                        }
+                    });
+                }
+            });
+            // Prepare line data
+            const lineData = arcYears.map(year => ({
+                year,
+                count: influenceCountsByYear[year] || 0
+            }));
+            // Y scale for line (place above bars, extend peaks outwards)
+            const maxCount = Math.max(1, ...lineData.map(d => d.count));
+            const barBandOuter = radius + groupOffset + 20; // just outside the bars
+            const peakExtension = 120; // how far the highest peak extends outwards
+            const yScale = d3.scaleLinear()
+                .domain([0, maxCount])
+                .range([barBandOuter, barBandOuter + peakExtension]);
+            // Build line path
+            const line = d3.line()
+                .x(d => {
+                    const angle = angleScale(d.year) - Math.PI / 2;
+                    const r = yScale(d.count); // Use the peak radius for x
+                    return centerX + Math.cos(angle) * r;
+                })
+                .y(d => {
+                    const angle = angleScale(d.year) - Math.PI / 2;
+                    const r = yScale(d.count); // Use the peak radius for y
+                    return centerY + Math.sin(angle) * r;
+                })
+                .curve(d3.curveMonotoneX);
+            g.append('path')
+                .datum(lineData)
+                .attr('d', line)
+                .attr('fill', 'none')
+                .attr('stroke', '#fff') // or use '#bbb' for gray
+                .attr('stroke-width', 2.5)
+                .attr('opacity', 0.85);
+        }
+    }, [filteredNodes, years, genres, artistNodes, visibleLabels, selectedGenres, visibleSongAlbumIds, nodeById, selectedArtistId, selectedLabelId, selectedArtworkId, influenceGenres, arcYears, angleScale, svgHeight, hoveredArtworkId]);
 
     // Debounced draw
-    const debouncedDraw = useMemo(() => debounce(draw, 50), [draw]);
+    const debouncedDraw = useMemo(() => debounce(draw, 100), [draw, hoveredArtworkId]);
 
     useEffect(() => {
         if (!ref.current) return;
@@ -1794,9 +2101,11 @@ function Overview({ data }) {
         const zoom = d3.zoom()
             .scaleExtent([0.2, 5])
             .on('zoom', (event) => {
+                zoomTransformRef.current = event.transform;
                 svgSelection.select('.zoom-group').attr('transform', event.transform);
             });
         svgSelection.call(zoom);
+        svgSelection.call(zoom.transform, zoomTransformRef.current);
         let resizeObserver = new window.ResizeObserver(() => {
             debouncedDraw();
         });
@@ -1813,6 +2122,11 @@ function Overview({ data }) {
 
     return (
         <div>
+            <Lightbox 
+                isOpen={isLightboxOpen} 
+                onClose={() => setIsLightboxOpen(false)} 
+                url={lightboxUrl} 
+            />
             <div className="overview" style={{ width: '100%' }}>
                 <svg ref={ref} width="100%" height={svgHeight}></svg>
             </div>
@@ -1831,68 +2145,69 @@ function Overview({ data }) {
                     left: 0
                 }}
             >
+
                 {/* Artist Role Filter Group */}
-                <div style={{ minWidth: 220 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1em', marginBottom: '0.5em' }}>
-                        <button
-                            onClick={toggleRoleFilter}
-                            style={{
-                                marginRight: 8,
-                                background: '#222',
-                                color: '#fff',
-                                border: 'none',
-                                borderRadius: 4,
-                                cursor: 'pointer',
-                                padding: '2px 8px'
-                            }}
-                        >
-                            {showArtistFilter ? '−' : '+'}
-                        </button>
-                        <label style={{
-                            fontWeight: allRolesSelected ? 'bold' : 'normal',
-                            cursor: 'pointer',
-                            color: '#fff',
-                            fontSize: '0.85em'
-                        }}>
-                            <input
-                                type="checkbox"
-                                checked={allRolesSelected}
-                                onChange={handleRoleSelectAll}
-                                style={{ marginRight: 6 }}
-                                ref={el => {
-                                    if (el) {
-                                        el.indeterminate = !allRolesSelected && !noneRolesSelected;
-                                    }
+                    <div style={{ minWidth: 220 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1em', marginBottom: '0.5em' }}>
+                            <button
+                                onClick={toggleRoleFilter}
+                                style={{
+                                    marginRight: 8,
+                                    background: '#222',
+                                    color: '#fff',
+                                    border: 'none',
+                                    borderRadius: 4,
+                                    cursor: 'pointer',
+                                    padding: '2px 8px'
                                 }}
-                            />
-                            Artist Role: Select All
-                        </label>
-                    </div>
-                    <div style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        flexWrap: 'wrap'
-                    }}>
-                        {showArtistFilter && ARTIST_ROLES.map(roleObj => (
-                            <label key={roleObj.label} style={{
-                                fontWeight: selectedRoles.has(roleObj.label) ? 'bold' : 'normal',
-                                color: roleObj.color,
-                                opacity: selectedRoles.size === 0 || selectedRoles.has(roleObj.label) ? 1 : 0.4,
+                            >
+                                {showArtistFilter ? '−' : '+'}
+                            </button>
+                            <label style={{
+                                fontWeight: allRolesSelected ? 'bold' : 'normal',
                                 cursor: 'pointer',
-                                marginBottom: 1,
+                                color: '#fff',
                                 fontSize: '0.85em'
                             }}>
                                 <input
                                     type="checkbox"
-                                    checked={selectedRoles.has(roleObj.label)}
-                                    onChange={() => handleRoleChange(roleObj.label)}
+                                    checked={allRolesSelected}
+                                    onChange={handleRoleSelectAll}
                                     style={{ marginRight: 6 }}
+                                    ref={el => {
+                                        if (el) {
+                                            el.indeterminate = !allRolesSelected && !noneRolesSelected;
+                                        }
+                                    }}
                                 />
-                                {roleObj.label}
+                                Artist Role: Select All
                             </label>
-                        ))}
+                        </div>
+                        <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            flexWrap: 'wrap'
+                        }}>
+                            {showArtistFilter && ARTIST_ROLES.map(roleObj => (
+                                <label key={roleObj.label} style={{
+                                    fontWeight: selectedRoles.has(roleObj.label) ? 'bold' : 'normal',
+                                    color: roleObj.color,
+                                    opacity: selectedRoles.size === 0 || selectedRoles.has(roleObj.label) ? 1 : 0.4,
+                                    cursor: 'pointer',
+                                    marginBottom: 1,
+                                    fontSize: '0.85em'
+                                }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedRoles.has(roleObj.label)}
+                                        onChange={() => handleRoleChange(roleObj.label)}
+                                        style={{ marginRight: 6 }}
+                                    />
+                                    {roleObj.label}
+                                </label>
+                            ))}
+                        </div>
                     </div>
-                </div>
                 {/* Main Genre Filter Group */}
                 <div style={{ minWidth: 320 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1em', marginBottom: '0.5em' }}>
@@ -2056,6 +2371,78 @@ function Overview({ data }) {
                             ))}
                         </div>
                     )}
+                </div>
+                                {/* Artist Search Box */}
+                <div style={{ minWidth: 220, marginBottom: 12 }}>
+                    <div style={{ position: 'relative', marginBottom: 8 }}>
+                        <input
+                            ref={searchInputRef}
+                            type="text"
+                            value={artistSearch}
+                            onChange={e => {
+                                setArtistSearch(e.target.value);
+                                setShowArtistDropdown(true);
+                            }}
+                            onFocus={() => setShowArtistDropdown(true)}
+                            onBlur={() => setTimeout(() => setShowArtistDropdown(false), 150)}
+                            placeholder="Search artist..."
+                            style={{
+                                width: '100%',
+                                padding: '4px 8px',
+                                borderRadius: 4,
+                                border: '2px solid #f7f7f7',
+                                fontSize: '1em',
+                                background: '#fff',
+                                color: '#000',
+                                outline: 'none',
+                            }}
+                        />
+                        {showArtistDropdown && artistSearch && artistSearchResults.length > 0 && (
+                            <div style={{
+                                position: 'absolute',
+                                top: '110%',
+                                left: 0,
+                                right: 0,
+                                background: '#222',
+                                border: '1px solid #444',
+                                borderRadius: 4,
+                                zIndex: 10,
+                                maxHeight: 180,
+                                overflowY: 'auto',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+                            }}>
+                                {artistSearchResults.slice(0, 10).map(a => (
+                                    <div
+                                        key={a.id}
+                                        onMouseDown={e => {
+                                            e.preventDefault();
+                                            setSelectedArtistId(a.id);
+                                            setArtistSearch("");
+                                            setShowArtistDropdown(false);
+                                            if (searchInputRef.current) searchInputRef.current.blur();
+                                            // If this is Sailor, also open lightbox
+                                            if (a.name && a.name.toLowerCase().includes('sailor')) {
+                                                setIsLightboxOpen(true);
+                                                setLightboxUrl('https://bucolic-pastelito-a132e1.netlify.app/');
+                                            }
+                                        }}
+                                        style={{
+                                            padding: '6px 10px',
+                                            cursor: 'pointer',
+                                            background: selectedArtistId === a.id ? '#444' : 'none',
+                                            color: '#fff',
+                                            fontWeight: selectedArtistId === a.id ? 'bold' : 'normal',
+                                            borderBottom: '1px solid #333',
+                                        }}
+                                    >
+                                        {a.name}
+                                        {a._type === 'group' && <span style={{ color: '#aaa', marginLeft: 6 }}>(Group)</span>}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
                 </div>
             </div>
         </div>
